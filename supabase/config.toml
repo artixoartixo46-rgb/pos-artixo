@@ -1,0 +1,7 @@
+project_id = "mzhswztggmwdhdieatmj"
+
+[functions.qr-add-items]
+verify_jwt = false
+
+[functions.scan-vendor-bill]
+verify_jwt = false

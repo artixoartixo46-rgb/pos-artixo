@@ -1,0 +1,1992 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff } from "lucide-react";
+import { QRScanner } from "@/components/QRScanner";
+import { useToast } from "@/hooks/use-toast";
+import { useVoiceSearch, phoneticMatch } from "@/hooks/useVoiceSearch";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { format } from "date-fns";
+import html2canvas from "html2canvas";
+
+interface CartItem {
+  product_id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  barcode?: string;
+}
+
+type DiscountType = "percentage" | "fixed";
+type PaymentMethod = "Cash" | "Card" | "Credit";
+
+interface CreditCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  outstanding_balance: number;
+}
+
+interface CreditInvoice {
+  id: string;
+  invoice_number: string;
+  sale_date: string;
+  total_amount: number;
+  paid_amount: number;
+  balance: number;
+  status: string;
+  customer_name: string;
+}
+
+export default function POSTerminal() {
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [lastScannedQR, setLastScannedQR] = useState("");
+  const [discount, setDiscount] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<DiscountType>("percentage");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
+  const [customerPaidAmount, setCustomerPaidAmount] = useState<number>(0);
+  const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState("");
+  const [creditAccountOpen, setCreditAccountOpen] = useState(false);
+  const [creditPaymentOpen, setCreditPaymentOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<CreditInvoice | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [creditPaymentMethod, setCreditPaymentMethod] = useState<string>("Cash");
+  const [paymentRemarks, setPaymentRemarks] = useState<string>("");
+  const [viewCustomer, setViewCustomer] = useState<CreditCustomer | null>(null);
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [lastReceiptData, setLastReceiptData] = useState<{
+    invoiceNumber: string;
+    items: CartItem[];
+    subtotal: number;
+    discountAmount: number;
+    total: number;
+    paidAmount: number;
+    balance: number;
+    paymentMethod: string;
+    customerName?: string;
+  } | null>(null);
+  const [voiceLanguage, setVoiceLanguage] = useState<string>("en-US");
+  const [showVoicePreview, setShowVoicePreview] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const receiptRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: products } = useQuery({
+    queryKey: ["products", searchTerm],
+    queryFn: async () => {
+      let query = supabase.from("products").select("*");
+      
+      if (searchTerm) {
+        query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,qr_code_number.ilike.%${searchTerm}%`);
+      }
+      
+      const { data, error } = await query.limit(20);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Find best matching product using phonetic matching
+  const findBestMatch = useCallback((input: string, productList: any[]) => {
+    let bestMatch = null;
+    let bestScore = 0;
+    
+    for (const product of productList) {
+      const nameScore = phoneticMatch(input, product.name);
+      const categoryScore = product.category ? phoneticMatch(input, product.category) * 0.5 : 0;
+      const brandScore = product.brand ? phoneticMatch(input, product.brand) * 0.3 : 0;
+      
+      const totalScore = Math.max(nameScore, nameScore + categoryScore, nameScore + brandScore);
+      
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
+        bestMatch = product;
+      }
+    }
+    
+    return bestScore > 0.4 ? bestMatch : null;
+  }, []);
+
+  // Voice search handler - defined after products
+  const handleVoiceResult = useCallback(async (transcript: string) => {
+    console.log("Voice transcript:", transcript);
+    setSearchTerm(transcript);
+    setShowVoicePreview(true);
+    
+    // Process voice commands
+    const lowerTranscript = transcript.toLowerCase().trim();
+    
+    // Voice command: "checkout" or "proceed to bill"
+    if (lowerTranscript.includes("checkout") || lowerTranscript.includes("proceed to bill") || lowerTranscript.includes("complete sale")) {
+      if (cart.length > 0) {
+        toast({
+          title: "Ready for Checkout",
+          description: "Please confirm payment details to complete sale",
+        });
+        document.getElementById("payment-section")?.scrollIntoView({ behavior: "smooth" });
+        setSearchTerm("");
+        return;
+      } else {
+        toast({
+          title: "Cart Empty",
+          description: "Add items to cart before checkout",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+    
+    // Hide preview after a delay
+    setTimeout(() => setShowVoicePreview(false), 3000);
+  }, [cart, toast]);
+
+  // Effect to handle voice commands that need products data
+  useEffect(() => {
+    if (!showVoicePreview || !searchTerm || !products) return;
+    
+    const lowerTranscript = searchTerm.toLowerCase().trim();
+    
+    // Voice command: "add this" - add first matching product
+    if (lowerTranscript.includes("add this") || lowerTranscript.includes("add item")) {
+      const productName = lowerTranscript.replace(/add (this|item)/g, "").trim();
+      if (productName && products.length > 0) {
+        const matchedProduct = findBestMatch(productName, products);
+        if (matchedProduct) {
+          addToCart(matchedProduct);
+          toast({
+            title: "Added via Voice",
+            description: `${matchedProduct.name} added to cart`,
+          });
+          setSearchTerm("");
+          setShowVoicePreview(false);
+          return;
+        }
+      }
+    }
+    
+    // Voice command: "remove this"
+    if (lowerTranscript.includes("remove this") || lowerTranscript.includes("remove item")) {
+      const productName = lowerTranscript.replace(/remove (this|item)/g, "").trim();
+      if (productName && cart.length > 0) {
+        const matchedCartItem = cart.find(item => 
+          phoneticMatch(productName, item.name) > 0.6
+        );
+        if (matchedCartItem) {
+          removeFromCart(matchedCartItem.product_id);
+          toast({
+            title: "Removed via Voice",
+            description: `${matchedCartItem.name} removed from cart`,
+          });
+          setSearchTerm("");
+          setShowVoicePreview(false);
+          return;
+        }
+      }
+    }
+
+    // Auto-add product if there's a strong match (not a command)
+    if (!lowerTranscript.includes("add") && !lowerTranscript.includes("remove") && 
+        !lowerTranscript.includes("checkout") && !lowerTranscript.includes("bill") &&
+        products.length > 0) {
+      const bestMatch = findBestMatch(searchTerm, products);
+      if (bestMatch && phoneticMatch(searchTerm, bestMatch.name) > 0.8) {
+        addToCart(bestMatch);
+        toast({
+          title: "Product Added via Voice",
+          description: `${bestMatch.name} added to cart`,
+        });
+        setSearchTerm("");
+        setShowVoicePreview(false);
+      }
+    }
+  }, [products, searchTerm, showVoicePreview, cart, findBestMatch, toast]);
+
+  const handleVoiceError = useCallback((error: string) => {
+    toast({
+      title: "Voice Input Error",
+      description: error,
+      variant: "destructive",
+    });
+  }, [toast]);
+
+  const {
+    isListening,
+    transcript: voiceTranscript,
+    toggleListening,
+    isSupported: voiceSupported,
+    error: voiceError,
+  } = useVoiceSearch({
+    language: voiceLanguage,
+    onResult: handleVoiceResult,
+    onError: handleVoiceError,
+  });
+
+  // Toggle voice language
+  const toggleVoiceLanguage = useCallback(() => {
+    setVoiceLanguage(prev => prev === "en-US" ? "ta-LK" : "en-US");
+    toast({
+      title: "Voice Language Changed",
+      description: voiceLanguage === "en-US" ? "தமிழ் (Tamil)" : "English",
+    });
+  }, [voiceLanguage, toast]);
+
+  // Interface for QR JSON items (supports new format and legacy)
+  interface QRJsonItem {
+    type?: string;
+    item_id?: string;
+    id?: string;
+    itemCode?: string;
+    name?: string;
+    itemName?: string;
+    qty?: number;
+    quantity?: number;
+    price?: number;
+    unitPrice?: number;
+    currency?: string;
+    sku?: string;
+    timestamp?: number;
+  }
+
+  // Check if string is valid JSON
+  const isValidJSON = (str: string): boolean => {
+    try {
+      const parsed = JSON.parse(str);
+      return typeof parsed === 'object' && parsed !== null;
+    } catch {
+      return false;
+    }
+  };
+
+  // Map QR item keys to POS format (supports new format with item_id and legacy)
+  const mapQRItemToPOS = (item: QRJsonItem) => ({
+    itemCode: item.item_id || item.id || item.itemCode || '',
+    itemName: item.name || item.itemName || '',
+    quantity: item.qty || item.quantity || 1,
+    unitPrice: item.price || item.unitPrice || 0,
+    total: (item.qty || item.quantity || 1) * (item.price || item.unitPrice || 0),
+  });
+
+  // Process JSON QR code with items array or single item
+  const handleJSONQRScan = async (jsonString: string) => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      
+      // Check if it's a single item QR (new format with type: "item")
+      if (parsed.type === "item" && parsed.item_id) {
+        // Single item QR code - add directly to cart
+        const { data: existingProduct } = await supabase
+          .from("products")
+          .select("*")
+          .eq("qr_code_number", parsed.item_id)
+          .limit(1)
+          .single();
+
+        if (existingProduct) {
+          addToCart(existingProduct);
+          toast({
+            title: "Item Added via QR!",
+            description: `${existingProduct.name} added to cart`,
+          });
+        } else {
+          // Add as temporary item if not in database
+          const tempId = `temp_${parsed.item_id}_${Date.now()}`;
+          setCart(prev => [...prev, {
+            product_id: tempId,
+            name: parsed.name || "Unknown Item",
+            price: parsed.price || 0,
+            quantity: parsed.qty || 1,
+          }]);
+          toast({
+            title: "Item Added",
+            description: `${parsed.name || "Unknown Item"} added to cart`,
+          });
+        }
+        setSearchTerm("");
+        setLastScannedQR(jsonString);
+        setTimeout(() => setLastScannedQR(""), 500);
+        return;
+      }
+      
+      // Check for items array (bulk items)
+      if (!parsed.items || !Array.isArray(parsed.items)) {
+        toast({
+          title: "Invalid QR Format",
+          description: "QR code must contain an 'items' array or be a single item",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Map items to POS format
+      const mappedItems = parsed.items.map(mapQRItemToPOS);
+
+      // Send to backend API
+      const { data, error } = await supabase.functions.invoke('qr-add-items', {
+        body: { items: mappedItems },
+      });
+
+      if (error) {
+        console.error('Backend error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to process QR items",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (data.status === 'error') {
+        toast({
+          title: "QR Processing Error",
+          description: data.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Add validated items to cart
+      const savedItems = data.data?.savedItems || [];
+      for (const item of savedItems) {
+        // Check if product exists in database by itemCode (qr_code_number)
+        const { data: existingProduct } = await supabase
+          .from("products")
+          .select("*")
+          .eq("qr_code_number", item.itemCode)
+          .limit(1)
+          .single();
+
+        if (existingProduct) {
+          // Add existing product to cart
+          const existingCartItem = cart.find(c => c.product_id === existingProduct.id);
+          if (existingCartItem) {
+            setCart(prev => prev.map(c => 
+              c.product_id === existingProduct.id 
+                ? { ...c, quantity: c.quantity + item.quantity }
+                : c
+            ));
+          } else {
+            setCart(prev => [...prev, {
+              product_id: existingProduct.id,
+              name: existingProduct.name,
+              price: Number(existingProduct.price),
+              quantity: item.quantity,
+              barcode: existingProduct.barcode,
+            }]);
+          }
+        } else {
+          // Add as temporary item (no product_id)
+          const tempId = `temp_${item.itemCode}_${Date.now()}`;
+          setCart(prev => [...prev, {
+            product_id: tempId,
+            name: item.itemName,
+            price: item.unitPrice,
+            quantity: item.quantity,
+          }]);
+        }
+      }
+
+      toast({
+        title: "QR Items Loaded!",
+        description: `${savedItems.length} item(s) added to cart`,
+      });
+
+      setSearchTerm("");
+      setLastScannedQR(jsonString);
+      setTimeout(() => setLastScannedQR(""), 500);
+
+    } catch (error) {
+      console.error('JSON parse error:', error);
+      toast({
+        title: "Invalid QR Code",
+        description: "Could not parse QR code data",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Auto-add to cart when QR code is scanned
+  const handleQRScan = async (qrContent: string) => {
+    if (!qrContent || qrContent === lastScannedQR) return;
+    
+    let qrNumber: string | null = null;
+
+    // Check if content is JSON
+    if (isValidJSON(qrContent)) {
+      try {
+        const parsed = JSON.parse(qrContent);
+        // Handle single-item QR (from our label printer): { type:"item", item_id:"1001", ... }
+        if (parsed.type === "item" && parsed.item_id) {
+          qrNumber = String(parsed.item_id);
+        } else if (parsed.qr) {
+          // Legacy format: { qr:"1001", name:"...", price:... }
+          qrNumber = String(parsed.qr);
+        } else if (parsed.items && Array.isArray(parsed.items)) {
+          // Bulk items JSON
+          await handleJSONQRScan(qrContent);
+          return;
+        }
+      } catch {
+        // Not valid JSON, fall through
+      }
+    }
+
+    // If not extracted from JSON, check if it's a plain QR code number
+    if (!qrNumber) {
+      const isQRNumber = /^\d+$/.test(qrContent) && parseInt(qrContent) >= 1001;
+      if (isQRNumber) {
+        qrNumber = qrContent;
+      }
+    }
+
+    if (qrNumber) {
+      const { data: matchedProducts, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("qr_code_number", qrNumber)
+        .limit(1);
+      
+      if (!error && matchedProducts && matchedProducts.length > 0) {
+        const product = matchedProducts[0];
+        addToCart(product);
+        setLastScannedQR(qrContent);
+        toast({
+          title: "Item Added via QR Scan!",
+          description: `${product.name} added to cart`,
+        });
+        setSearchTerm("");
+        setTimeout(() => setLastScannedQR(""), 300);
+      } else {
+        toast({
+          title: "Invalid QR Code",
+          description: `Product not found for QR: ${qrNumber}`,
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  // Watch for QR scan input
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    
+    // Debounce QR scan detection
+    const debounceTimer = setTimeout(() => {
+      handleQRScan(value);
+    }, 100);
+    
+    return () => clearTimeout(debounceTimer);
+  };
+
+  const { data: creditCustomers } = useQuery({
+    queryKey: ["credit-customers", customerSearchTerm],
+    queryFn: async () => {
+      let query = supabase.from("credit_customers").select("*");
+      
+      if (customerSearchTerm) {
+        query = query.or(`name.ilike.%${customerSearchTerm}%,phone.ilike.%${customerSearchTerm}%`);
+      }
+      
+      const { data, error } = await query.limit(10);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: creditInvoices } = useQuery({
+    queryKey: ["credit-invoices", viewCustomer?.id],
+    queryFn: async () => {
+      if (!viewCustomer) return [];
+      
+      const { data, error } = await supabase
+        .from("sales")
+        .select("*")
+        .eq("customer_id", viewCustomer.id)
+        .in("status", ["open", "partial"])
+        .order("sale_date", { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!viewCustomer,
+  });
+
+  // Auto print sale receipt
+  const printSaleReceipt = (saleData: {
+    invoiceNumber: string;
+    items: CartItem[];
+    subtotal: number;
+    discountAmount: number;
+    total: number;
+    paidAmount: number;
+    balance: number;
+    paymentMethod: string;
+    customerName?: string;
+  }) => {
+    const printWindow = window.open('', '_blank', 'width=320,height=600');
+    if (!printWindow) {
+      toast({
+        title: "Popup Blocked",
+        description: "Please allow popups to print receipt",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB');
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+
+    const itemsHTML = saleData.items.map(item => `
+      <div style="margin-bottom: 4px;">
+        <div style="font-size: 11px;">${item.name}</div>
+        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #333;">
+          <span>${item.quantity} x ${(item.price ?? 0).toFixed(2)}</span>
+          <span>${((item.price ?? 0) * item.quantity).toFixed(2)}</span>
+        </div>
+      </div>
+    `).join('');
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt - ${saleData.invoiceNumber}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            @page { size: 80mm auto; margin: 0; }
+            @media print {
+              body { width: 80mm; margin: 0; padding: 2mm; }
+            }
+            body {
+              font-family: 'Consolas', 'Courier New', monospace;
+              font-size: 11px;
+              width: 80mm;
+              margin: 0 auto;
+              padding: 3mm;
+              background: #fff;
+              color: #000;
+              line-height: 1.4;
+            }
+            .header { text-align: center; margin-bottom: 10px; }
+            .header h1 { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
+            .header p { font-size: 9px; color: #333; }
+            .divider { border-top: 1px dashed #000; margin: 8px 0; }
+            .info-row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10px; }
+            .items { margin: 8px 0; }
+            .totals .row { display: flex; justify-content: space-between; margin: 3px 0; }
+            .totals .grand { font-size: 14px; font-weight: bold; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px; }
+            .payment { margin: 8px 0; }
+            .footer { text-align: center; margin-top: 12px; font-size: 10px; }
+            .footer .thanks { font-weight: bold; font-size: 12px; margin-bottom: 3px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>JD POS</h1>
+            <p>Point of Sale Receipt</p>
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="info">
+            <div class="info-row">
+              <span>Invoice:</span>
+              <span><strong>${saleData.invoiceNumber}</strong></span>
+            </div>
+            <div class="info-row">
+              <span>Date:</span>
+              <span>${dateStr}</span>
+            </div>
+            <div class="info-row">
+              <span>Time:</span>
+              <span>${timeStr}</span>
+            </div>
+            ${saleData.customerName ? `
+            <div class="info-row">
+              <span>Customer:</span>
+              <span>${saleData.customerName}</span>
+            </div>
+            ` : ''}
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="items">
+            ${itemsHTML}
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="totals">
+            <div class="row">
+              <span>Subtotal:</span>
+              <span>Rs. ${saleData.subtotal.toFixed(2)}</span>
+            </div>
+            ${saleData.discountAmount > 0 ? `
+            <div class="row">
+              <span>Discount:</span>
+              <span>- Rs. ${saleData.discountAmount.toFixed(2)}</span>
+            </div>
+            ` : ''}
+            <div class="row grand">
+              <span>TOTAL:</span>
+              <span>Rs. ${saleData.total.toFixed(2)}</span>
+            </div>
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="payment">
+            <div class="info-row">
+              <span>Paid By:</span>
+              <span>${saleData.paymentMethod}</span>
+            </div>
+            <div class="info-row">
+              <span>Paid Amount:</span>
+              <span>Rs. ${saleData.paidAmount.toFixed(2)}</span>
+            </div>
+            <div class="info-row">
+              <span>${saleData.balance >= 0 ? 'Change:' : 'Balance Due:'}</span>
+              <span>Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
+            </div>
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="footer">
+            <div class="thanks">Thank you! Visit Again</div>
+            <p>Powered by Artixo</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(receiptHTML);
+    printWindow.document.close();
+    
+    printWindow.onload = () => {
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 200);
+    };
+    
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 400);
+  };
+
+  const createSaleMutation = useMutation({
+    mutationFn: async () => {
+      // Validate cart
+      if (cart.length === 0) {
+        throw new Error("Cart is empty");
+      }
+
+      const saleSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const saleDiscountAmount = discountType === "percentage" 
+        ? (saleSubtotal * discount) / 100 
+        : discount;
+      const totalAmount = saleSubtotal - saleDiscountAmount;
+      const saleBalance = customerPaidAmount - totalAmount;
+
+      // Validation based on payment method
+      if (paymentMethod !== "Credit" && customerPaidAmount < totalAmount) {
+        throw new Error("Insufficient payment amount");
+      }
+
+      if (paymentMethod === "Credit" && !selectedCustomer) {
+        throw new Error("Please select a credit customer");
+      }
+
+      const invoiceNumber = await supabase.rpc("generate_invoice_number");
+
+      // Determine invoice status
+      let status = "closed";
+      if (paymentMethod === "Credit") {
+        if (customerPaidAmount === 0) {
+          status = "open";
+        } else if (customerPaidAmount < totalAmount) {
+          status = "partial";
+        }
+      }
+
+      const { data: sale, error: saleError } = await supabase
+        .from("sales")
+        .insert({
+          invoice_number: invoiceNumber.data,
+          customer_id: selectedCustomer?.id || null,
+          customer_name: selectedCustomer?.name || null,
+          customer_phone: selectedCustomer?.phone || null,
+          subtotal: saleSubtotal,
+          discount_amount: saleDiscountAmount,
+          total_amount: totalAmount,
+          payment_method: paymentMethod,
+          paid_amount: customerPaidAmount,
+          balance: saleBalance,
+          status,
+        })
+        .select()
+        .single();
+
+      if (saleError) throw saleError;
+
+      // Update credit customer outstanding balance
+      if (paymentMethod === "Credit" && selectedCustomer) {
+        const newBalance = selectedCustomer.outstanding_balance + totalAmount - customerPaidAmount;
+        const { error: updateError } = await supabase
+          .from("credit_customers")
+          .update({ outstanding_balance: newBalance })
+          .eq("id", selectedCustomer.id);
+        
+        if (updateError) throw updateError;
+      }
+
+      const saleItems = cart.map((item) => ({
+        sale_id: sale.id,
+        product_id: item.product_id,
+        product_name: item.name,
+        quantity: item.quantity,
+        unit_price: item.price,
+        total_price: item.price * item.quantity,
+      }));
+
+      const { error: itemsError } = await supabase.from("sale_items").insert(saleItems);
+      if (itemsError) throw itemsError;
+
+      // Update stock quantities
+      for (const item of cart) {
+        const { data: product } = await supabase
+          .from("products")
+          .select("stock_quantity")
+          .eq("id", item.product_id)
+          .single();
+        
+        if (product) {
+          await supabase
+            .from("products")
+            .update({ stock_quantity: product.stock_quantity - item.quantity })
+            .eq("id", item.product_id);
+        }
+      }
+
+      // Return data for receipt printing
+      return {
+        sale,
+        receiptData: {
+          invoiceNumber: invoiceNumber.data,
+          items: [...cart],
+          subtotal: saleSubtotal,
+          discountAmount: saleDiscountAmount,
+          total: totalAmount,
+          paidAmount: customerPaidAmount,
+          balance: saleBalance,
+          paymentMethod,
+          customerName: selectedCustomer?.name,
+        }
+      };
+    },
+    onSuccess: (data) => {
+      // Store last receipt data for reprinting
+      setLastReceiptData(data.receiptData);
+      
+      // Auto print receipt
+      printSaleReceipt(data.receiptData);
+
+      const message = paymentMethod === "Credit" 
+        ? "Credit sale recorded successfully!" 
+        : "Transaction recorded successfully!";
+      
+      toast({
+        title: "Sale Completed",
+        description: message,
+      });
+
+      // Clear cart and reset form
+      setCart([]);
+      setDiscount(0);
+      setCustomerPaidAmount(0);
+      setSelectedCustomer(null);
+      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["today-sales"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to complete sale",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Validate payment and calculate settle/advance amounts
+  const validatePayment = (outstanding: number, payAmount: number) => {
+    if (outstanding === 0) {
+      return { success: false, message: "Invoice fully settled already." };
+    }
+    if (payAmount <= 0) {
+      return { success: false, message: "Enter a valid payment amount." };
+    }
+    const settleAmount = Math.min(payAmount, Math.abs(outstanding));
+    const advanceAmount = payAmount > Math.abs(outstanding) ? payAmount - Math.abs(outstanding) : 0;
+    return {
+      success: true,
+      settleAmount,
+      advanceAmount,
+      message: advanceAmount > 0 ? "Payment success with advance credit." : "Payment successful.",
+    };
+  };
+
+  const processCreditPaymentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedInvoice || !viewCustomer) {
+        throw new Error("Invoice or customer not selected");
+      }
+
+      const outstanding = selectedInvoice.balance || 0;
+      
+      // Validate payment
+      const validation = validatePayment(outstanding, paymentAmount);
+      if (!validation.success) {
+        throw new Error(validation.message);
+      }
+
+      const { settleAmount, advanceAmount } = validation;
+      const balanceBefore = viewCustomer.outstanding_balance || 0;
+      const newInvoiceBalance = Math.max(0, outstanding - settleAmount);
+      const newPaidAmount = (selectedInvoice.paid_amount || 0) + settleAmount;
+      const newStatus = newInvoiceBalance === 0 ? "closed" : "partial";
+      
+      // Customer balance decreases by settleAmount, but if there's advance, it goes negative (credit)
+      const balanceAfter = balanceBefore - settleAmount - advanceAmount;
+
+      // Update invoice
+      const { error: invoiceError } = await supabase
+        .from("sales")
+        .update({
+          paid_amount: newPaidAmount,
+          balance: newInvoiceBalance,
+          status: newStatus,
+        })
+        .eq("id", selectedInvoice.id);
+
+      if (invoiceError) throw invoiceError;
+
+      // Update customer balance (negative = advance credit)
+      const { error: customerError } = await supabase
+        .from("credit_customers")
+        .update({ outstanding_balance: balanceAfter })
+        .eq("id", viewCustomer.id);
+
+      if (customerError) throw customerError;
+
+      // Record payment history with remarks including advance info
+      const paymentRemarksFinal = advanceAmount > 0 
+        ? `${paymentRemarks ? paymentRemarks + " | " : ""}Advance credit: Rs. ${advanceAmount.toFixed(2)}`
+        : paymentRemarks;
+
+      const { error: historyError } = await supabase
+        .from("credit_payment_history")
+        .insert({
+          customer_id: viewCustomer.id,
+          invoice_id: selectedInvoice.id,
+          invoice_number: selectedInvoice.invoice_number,
+          payment_amount: paymentAmount,
+          payment_method: creditPaymentMethod,
+          remarks: paymentRemarksFinal,
+          balance_before: balanceBefore,
+          balance_after: balanceAfter,
+        });
+
+      if (historyError) throw historyError;
+
+      return {
+        invoice: selectedInvoice,
+        customer: viewCustomer,
+        paymentAmount,
+        settleAmount,
+        advanceAmount,
+        balanceAfter: newInvoiceBalance,
+        customerBalanceAfter: balanceAfter,
+        invoiceStatus: newStatus === "closed" ? "PAID" : "PARTIAL",
+      };
+    },
+    onSuccess: (data) => {
+      const successMessage = data.advanceAmount > 0 
+        ? `Payment successful! Rs. ${data.advanceAmount.toFixed(2)} added as advance credit.`
+        : `Payment successful! Invoice status: ${data.invoiceStatus}`;
+      
+      toast({
+        title: "Payment Processed",
+        description: successMessage,
+      });
+
+      // Print receipt
+      handlePrintCreditReceipt(data);
+
+      // Reset states
+      setCreditPaymentOpen(false);
+      setSelectedInvoice(null);
+      setPaymentAmount(0);
+      setCreditPaymentMethod("Cash");
+      setPaymentRemarks("");
+
+      // Refresh data and update viewCustomer
+      queryClient.invalidateQueries({ queryKey: ["credit-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
+      
+      // Update viewCustomer with new balance
+      if (viewCustomer) {
+        setViewCustomer({ ...viewCustomer, outstanding_balance: data.customerBalanceAfter });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to process payment",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const addToCart = (product: any) => {
+    const existingItem = cart.find((item) => item.product_id === product.id);
+    
+    if (existingItem) {
+      setCart(
+        cart.map((item) =>
+          item.product_id === product.id
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        )
+      );
+    } else {
+      setCart([
+        ...cart,
+        {
+          product_id: product.id,
+          name: product.name,
+          price: Number(product.price),
+          quantity: 1,
+          barcode: product.barcode,
+        },
+      ]);
+    }
+  };
+
+  const updateQuantity = (productId: string, change: number) => {
+    setCart(
+      cart
+        .map((item) =>
+          item.product_id === productId
+            ? { ...item, quantity: Math.max(0, item.quantity + change) }
+            : item
+        )
+        .filter((item) => item.quantity > 0)
+    );
+  };
+
+  const removeFromCart = (productId: string) => {
+    setCart(cart.filter((item) => item.product_id !== productId));
+  };
+
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const discountAmount = discountType === "percentage" 
+    ? (subtotal * discount) / 100 
+    : discount;
+  const total = subtotal - discountAmount;
+  const balance = customerPaidAmount - total;
+
+  const handlePrintBill = async () => {
+    if (!receiptRef.current) {
+      toast({
+        title: "Error",
+        description: "Receipt container not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Convert receipt to canvas image
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+      });
+
+      const imageData = canvas.toDataURL('image/png');
+
+      const printWindow = window.open('', '_blank', 'width=300,height=600');
+      if (!printWindow) {
+        toast({
+          title: "Popup Blocked",
+          description: "Please allow popups for this site to print receipts",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Receipt</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              @page { size: 58mm auto; margin: 0; }
+              @media print {
+                body { width: 58mm; margin: 0; padding: 0; }
+                img { width: 58mm !important; height: auto !important; max-width: 100% !important; }
+              }
+              body { width: 58mm; margin: 0 auto; padding: 0; background: #fff; }
+              img { width: 100%; height: auto; display: block; }
+            </style>
+          </head>
+          <body>
+            <img src="${imageData}" alt="Receipt" />
+          </body>
+        </html>
+      `);
+
+      printWindow.document.close();
+
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 300);
+
+    } catch (error) {
+      console.error('Print error:', error);
+      toast({
+        title: "Print Error",
+        description: "Failed to generate receipt image",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePrintCreditReceipt = (data: any) => {
+    const printWindow = window.open('', '_blank', 'height=600,width=800');
+    if (!printWindow) {
+      toast({
+        title: "Popup Blocked",
+        description: "Please allow popups for this site to print receipts",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const receiptHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Credit Payment Receipt</title>
+          <style>
+            body { 
+              font-family: Arial, sans-serif; 
+              padding: 20px; 
+              max-width: 80mm;
+              margin: 0 auto;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 20px; 
+              border-bottom: 2px solid #333;
+              padding-bottom: 10px;
+            }
+            .header h1 { margin: 0; font-size: 20px; }
+            .header h2 { margin: 5px 0; font-size: 16px; font-weight: normal; }
+            .details { margin: 15px 0; }
+            .details div { 
+              display: flex; 
+              justify-content: space-between; 
+              margin: 8px 0; 
+              padding: 5px;
+            }
+            .details .label { font-weight: bold; }
+            .payment-section {
+              background: #f8f9fa;
+              padding: 15px;
+              margin: 15px 0;
+              border-radius: 8px;
+              border: 2px solid #00A86B;
+            }
+            .payment-section .amount {
+              font-size: 20px;
+              font-weight: bold;
+              color: #00A86B;
+            }
+            .balance-section {
+              text-align: center;
+              padding: 10px;
+              margin: 15px 0;
+              border-top: 2px dashed #333;
+              border-bottom: 2px dashed #333;
+            }
+            .balance-section .balance {
+              font-size: 18px;
+              font-weight: bold;
+            }
+            .footer { 
+              text-align: center; 
+              margin-top: 20px; 
+              font-size: 12px;
+              border-top: 2px solid #333;
+              padding-top: 10px;
+            }
+            .footer p { margin: 5px 0; }
+            @media print {
+              body { padding: 10px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>ARTIXO POS</h1>
+            <h2>Credit Payment Receipt</h2>
+          </div>
+          
+          <div class="details">
+            <div>
+              <span class="label">Date:</span>
+              <span>${format(new Date(), "dd/MM/yyyy HH:mm")}</span>
+            </div>
+            <div>
+              <span class="label">Invoice No:</span>
+              <span>${data.invoice.invoice_number}</span>
+            </div>
+            <div>
+              <span class="label">Customer:</span>
+              <span>${data.customer.name}</span>
+            </div>
+            <div>
+              <span class="label">Payment Method:</span>
+              <span>${creditPaymentMethod}</span>
+            </div>
+          </div>
+
+          <div class="payment-section">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+              <span class="label">Total Invoice:</span>
+              <span>Rs. ${(data.invoice.total_amount || 0).toFixed(2)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+              <span class="label">Previously Paid:</span>
+              <span>Rs. ${(data.invoice.paid_amount || 0).toFixed(2)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; border-top: 2px solid #333; padding-top: 10px;">
+              <span class="label">Amount Paid Now:</span>
+              <span class="amount">Rs. ${(data.paymentAmount || 0).toFixed(2)}</span>
+            </div>
+            ${data.advanceAmount > 0 ? `
+            <div style="display: flex; justify-content: space-between; margin-top: 10px; padding: 8px; background: #d4edda; border-radius: 4px;">
+              <span class="label">Advance Credit:</span>
+              <span style="color: #155724; font-weight: bold;">Rs. ${data.advanceAmount.toFixed(2)}</span>
+            </div>
+            ` : ''}
+          </div>
+
+          <div class="balance-section">
+            <div style="margin-bottom: 5px;">Invoice Balance Remaining</div>
+            <div class="balance">Rs. ${(data.balanceAfter || 0).toFixed(2)}</div>
+            ${data.customerBalanceAfter < 0 ? `
+            <div style="margin-top: 10px; color: #155724; font-weight: bold;">
+              Customer has Rs. ${Math.abs(data.customerBalanceAfter).toFixed(2)} advance credit
+            </div>
+            ` : ''}
+          </div>
+
+          ${paymentRemarks ? `
+            <div style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+              <div class="label">Remarks:</div>
+              <div style="margin-top: 5px;">${paymentRemarks}</div>
+            </div>
+          ` : ''}
+
+          <div class="footer">
+            <p>Thank you for your payment!</p>
+            <p>Visit Again - JD CREATION POS</p>
+            <p style="font-size: 10px; color: #666;">Powered by Lovable AI</p>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(receiptHTML);
+    printWindow.document.close();
+    
+    // Wait for content to load before printing
+    printWindow.onload = function() {
+      setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 250);
+    };
+    
+    // Fallback if onload doesn't fire
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 500);
+  };
+
+  const handleOpenCreditAccount = (customer: CreditCustomer) => {
+    setViewCustomer(customer);
+    setCreditAccountOpen(true);
+  };
+
+  const handleOpenPaymentModal = (invoice: any) => {
+    setSelectedInvoice(invoice);
+    setPaymentAmount(invoice.balance);
+    setCreditPaymentOpen(true);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
+          POS Terminal
+        </h1>
+        <div className="flex justify-between items-center mt-2">
+          <p className="text-muted-foreground">Create new sale and manage transactions</p>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="glass border-border/50">
+                <Wallet className="mr-2 h-4 w-4" />
+                Manage Credit Payments
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[400px] p-0 glass-card border-border/50">
+              <Command>
+                <CommandInput 
+                  placeholder="Search credit customer..." 
+                  value={customerSearchTerm}
+                  onValueChange={setCustomerSearchTerm}
+                />
+                <CommandList>
+                  <CommandEmpty>No customer found.</CommandEmpty>
+                  <CommandGroup>
+                    {creditCustomers?.map((customer) => (
+                      <CommandItem
+                        key={customer.id}
+                        value={customer.name}
+                        onSelect={() => {
+                          handleOpenCreditAccount(customer);
+                          setCustomerSearchTerm("");
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        <div className="flex-1">
+                          <p className="font-medium">{customer.name}</p>
+                          <p className="text-xs text-muted-foreground">{customer.phone}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-destructive">
+                          Rs. {(customer.outstanding_balance || 0).toFixed(2)}
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+
+      {/* Credit Customer Search */}
+      <Card className="glass-card border-border/50">
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="text-sm text-muted-foreground mb-2 block">Credit Customer (Optional)</label>
+              <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between glass border-border/50"
+                  >
+                    {selectedCustomer ? (
+                      <span className="flex items-center gap-2">
+                        <UserCheck className="h-4 w-4 text-primary" />
+                        {selectedCustomer.name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Search credit customer...</span>
+                    )}
+                    <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0 glass-card border-border/50">
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search by name or phone..." 
+                      value={customerSearchTerm}
+                      onValueChange={setCustomerSearchTerm}
+                    />
+                    <CommandList>
+                      <CommandEmpty>No customer found.</CommandEmpty>
+                      <CommandGroup>
+                        {creditCustomers?.map((customer) => (
+                          <CommandItem
+                            key={customer.id}
+                            value={customer.name}
+                            onSelect={() => {
+                              setSelectedCustomer(customer);
+                              setCustomerSearchOpen(false);
+                              setPaymentMethod("Credit");
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <UserCheck className="mr-2 h-4 w-4" />
+                            <div className="flex-1">
+                              <p className="font-medium">{customer.name}</p>
+                              <p className="text-xs text-muted-foreground">{customer.phone}</p>
+                            </div>
+                            <span className="text-sm font-semibold">
+                              Rs. {(customer.outstanding_balance || 0).toFixed(2)}
+                            </span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            {selectedCustomer && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  setSelectedCustomer(null);
+                  setPaymentMethod("Cash");
+                }}
+                className="mt-6"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          {selectedCustomer && (
+            <div className="mt-3 p-3 glass-card border-border/30 rounded-md">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium">{selectedCustomer.name}</p>
+                  <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Outstanding Balance</p>
+                  <p className="text-lg font-bold text-orange-400">
+                    Rs. {(selectedCustomer.outstanding_balance || 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-4">
+          <Card className="glass-card border-border/50">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span>Products</span>
+                {voiceSupported && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {voiceLanguage === "en-US" ? "EN" : "த"}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleVoiceLanguage}
+                      className="text-xs h-6 px-2"
+                    >
+                      {voiceLanguage === "en-US" ? "தமிழ்" : "English"}
+                    </Button>
+                  </div>
+                )}
+              </CardTitle>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
+                  <Input
+                    ref={searchInputRef}
+                    placeholder={isListening ? "Listening..." : "Search or speak product name..."}
+                    value={isListening && voiceTranscript ? voiceTranscript : searchTerm}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className={`pl-10 pr-12 glass border-border/50 transition-all ${isListening ? 'voice-listening border-primary' : ''}`}
+                    autoFocus
+                  />
+                  {/* Voice input button inside search bar */}
+                  {voiceSupported && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleListening}
+                      className={`absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 rounded-full transition-all ${
+                        isListening 
+                          ? 'bg-primary text-primary-foreground mic-active' 
+                          : 'hover:bg-muted'
+                      }`}
+                      title={isListening ? "Stop listening" : "Voice search (en-US / தமிழ்)"}
+                    >
+                      {isListening ? (
+                        <div className="relative">
+                          <MicOff className="h-4 w-4" />
+                        </div>
+                      ) : (
+                        <Mic className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                  
+                  {/* Voice preview tooltip */}
+                  {showVoicePreview && voiceTranscript && (
+                    <div className="absolute left-0 right-0 top-full mt-1 z-50 glass-card border-border/50 p-2 rounded-md animate-in fade-in slide-in-from-top-1">
+                      <p className="text-xs text-muted-foreground">Voice detected:</p>
+                      <p className="text-sm font-medium text-primary">{voiceTranscript}</p>
+                    </div>
+                  )}
+                </div>
+                <Button
+                  onClick={() => setQrScannerOpen(true)}
+                  className="bg-primary hover:bg-primary/90"
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Scan QR
+                </Button>
+              </div>
+              
+              {/* Voice commands help */}
+              {isListening && (
+                <div className="text-xs text-muted-foreground mt-2 p-2 glass-card rounded-md border-border/30">
+                  <p className="font-medium text-primary mb-1">Voice Commands:</p>
+                  <ul className="space-y-0.5">
+                    <li>"<span className="text-foreground">[product name]</span>" - Search & auto-add</li>
+                    <li>"<span className="text-foreground">Add [product name]</span>" - Add to cart</li>
+                    <li>"<span className="text-foreground">Remove [product name]</span>" - Remove from cart</li>
+                    <li>"<span className="text-foreground">Checkout</span>" - Proceed to bill</li>
+                  </ul>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
+                {products?.map((product) => (
+                  <button
+                    key={product.id}
+                    onClick={() => addToCart(product)}
+                    className="glass-card glass-hover p-4 text-left border-border/30"
+                  >
+                    <p className="font-semibold">{product.name}</p>
+                    <p className="text-sm text-muted-foreground">{product.category}</p>
+                    <p className="text-lg font-bold text-primary mt-2">
+                      Rs. {product.price ? Number(product.price).toFixed(2) : '0.00'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Stock: {product.stock_quantity}</p>
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card className="glass-card border-border/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5 text-primary" />
+                Current Sale
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4">
+                {cart.map((item) => (
+                  <div
+                    key={item.product_id}
+                    className="flex items-center justify-between p-3 glass-card border-border/30"
+                  >
+                    <div className="flex-1">
+                      <p className="font-medium">{item.name}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Rs. {item.price ? Number(item.price).toFixed(2) : '0.00'} each
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 glass"
+                        onClick={() => updateQuantity(item.product_id, -1)}
+                      >
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <span className="w-8 text-center font-bold">{item.quantity}</span>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 glass"
+                        onClick={() => updateQuantity(item.product_id, 1)}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="h-8 w-8 ml-2"
+                        onClick={() => removeFromCart(item.product_id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="ml-4 text-right">
+                      <p className="font-bold text-primary">
+                        Rs. {item.price ? (Number(item.price) * item.quantity).toFixed(2) : '0.00'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {cart.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">
+                    Cart is empty. Add products to start.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-border/50">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Subtotal:</span>
+                  <span className="font-medium">Rs. {subtotal.toFixed(2)}</span>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Discount</label>
+                  <div className="flex gap-2">
+                    <select
+                      value={discountType}
+                      onChange={(e) => setDiscountType(e.target.value as DiscountType)}
+                      className="glass border-border/50 rounded-md px-3 py-2 text-sm bg-background/50"
+                    >
+                      <option value="percentage">%</option>
+                      <option value="fixed">Rs.</option>
+                    </select>
+                    <Input
+                      type="number"
+                      value={discount}
+                      onChange={(e) => setDiscount(Number(e.target.value))}
+                      placeholder="0"
+                      min="0"
+                      className="glass border-border/50"
+                    />
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Discount Amount:</span>
+                    <span className="font-medium text-red-400">-Rs. {discountAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-xl font-bold pt-2 border-t border-border/50">
+                  <span>Total:</span>
+                  <span className="text-primary">Rs. {total.toFixed(2)}</span>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <label className="text-sm text-muted-foreground">Payment Method</label>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                    className="w-full glass border-border/50 rounded-md px-3 py-2 bg-background/50"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Credit">Credit</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">
+                    Customer Paid Amount {paymentMethod === "Credit" && "(Partial payment allowed)"}
+                  </label>
+                  <Input
+                    type="number"
+                    value={customerPaidAmount || ""}
+                    onChange={(e) => setCustomerPaidAmount(Number(e.target.value))}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    className="glass border-border/50 text-lg"
+                  />
+                </div>
+
+                {customerPaidAmount > 0 && (
+                  <div className="flex justify-between text-lg font-semibold pt-2">
+                    <span className="text-muted-foreground">
+                      {paymentMethod === "Credit" ? "Remaining Balance:" : "Balance:"}
+                    </span>
+                    <span className={balance >= 0 ? "text-green-400" : "text-orange-400"}>
+                      Rs. {Math.abs(balance).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <Button
+                    variant="outline"
+                    className="glass border-border/50"
+                    disabled={cart.length === 0}
+                    onClick={handlePrintBill}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print Bill
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="glass border-border/50"
+                    disabled={!lastReceiptData}
+                    onClick={() => lastReceiptData && printSaleReceipt(lastReceiptData)}
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Reprint Last
+                  </Button>
+                  <Button
+                    className="bg-primary hover:bg-primary/90 text-white"
+                    size="lg"
+                    disabled={
+                      cart.length === 0 || 
+                      (paymentMethod !== "Credit" && customerPaidAmount < total) ||
+                      (paymentMethod === "Credit" && !selectedCustomer)
+                    }
+                    onClick={() => createSaleMutation.mutate()}
+                  >
+                    {paymentMethod === "Credit" ? "Create Credit Bill" : "Complete Sale"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Credit Payment Management Dialog */}
+      <Dialog open={creditAccountOpen} onOpenChange={setCreditAccountOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto glass-card">
+          <DialogHeader>
+            <DialogTitle className="text-2xl">Customer Credit Account</DialogTitle>
+          </DialogHeader>
+          
+          {viewCustomer && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 p-4 glass-card border-border/30 rounded-lg">
+                <div>
+                  <p className="text-sm text-muted-foreground">Customer Name</p>
+                  <p className="text-lg font-semibold">{viewCustomer.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Phone</p>
+                  <p className="text-lg font-semibold">{viewCustomer.phone}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">Total Credit Balance</p>
+                  <p className="text-2xl font-bold text-destructive">
+                    Rs. {(viewCustomer.outstanding_balance || 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Outstanding Invoices</h3>
+                <div className="border border-border/50 rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead>Invoice No</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Total (LKR)</TableHead>
+                        <TableHead>Paid (LKR)</TableHead>
+                        <TableHead>Balance (LKR)</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {creditInvoices && creditInvoices.length > 0 ? (
+                        creditInvoices.map((invoice) => (
+                          <TableRow key={invoice.id}>
+                            <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
+                            <TableCell>{format(new Date(invoice.sale_date), "dd/MM/yyyy")}</TableCell>
+                            <TableCell>Rs. {(invoice.total_amount || 0).toFixed(2)}</TableCell>
+                            <TableCell>Rs. {(invoice.paid_amount || 0).toFixed(2)}</TableCell>
+                            <TableCell className="font-bold text-destructive">
+                              Rs. {(invoice.balance || 0).toFixed(2)}
+                            </TableCell>
+                            <TableCell>
+                              <span className={`px-2 py-1 rounded-full text-xs ${
+                                invoice.status === 'open' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+                              }`}>
+                                {invoice.status === 'open' ? 'Unpaid' : 'Partial'}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                className="bg-primary hover:bg-primary/90"
+                                onClick={() => handleOpenPaymentModal(invoice)}
+                              >
+                                Settle Payment
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                            No outstanding invoices
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Credit Payment Modal */}
+      <Dialog open={creditPaymentOpen} onOpenChange={setCreditPaymentOpen}>
+        <DialogContent className="glass-card">
+          <DialogHeader>
+            <DialogTitle>Settle Credit Payment</DialogTitle>
+          </DialogHeader>
+          
+          {selectedInvoice && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 p-4 glass-card border-border/30 rounded-lg">
+                <div>
+                  <Label className="text-muted-foreground">Invoice No</Label>
+                  <p className="font-semibold">{selectedInvoice.invoice_number}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground">Outstanding Amount</Label>
+                  <p className="text-xl font-bold text-destructive">
+                    Rs. {(selectedInvoice.balance || 0).toFixed(2)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payment-amount">Amount to Pay (LKR) *</Label>
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                  min={0}
+                  step="0.01"
+                  className="glass border-border/50"
+                />
+                {paymentAmount > (selectedInvoice.balance || 0) && (
+                  <p className="text-sm text-green-400">
+                    Rs. {(paymentAmount - (selectedInvoice.balance || 0)).toFixed(2)} will be added as advance credit
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payment-method">Payment Method *</Label>
+                <Select value={creditPaymentMethod} onValueChange={setCreditPaymentMethod}>
+                  <SelectTrigger className="glass border-border/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Card">Card</SelectItem>
+                    <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="remarks">Remarks (Optional)</Label>
+                <Textarea
+                  id="remarks"
+                  value={paymentRemarks}
+                  onChange={(e) => setPaymentRemarks(e.target.value)}
+                  placeholder="Add any notes about this payment..."
+                  className="glass border-border/50"
+                  rows={3}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setCreditPaymentOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-primary hover:bg-primary/90"
+                  onClick={() => processCreditPaymentMutation.mutate()}
+                  disabled={paymentAmount <= 0 || (selectedInvoice.balance || 0) === 0}
+                >
+                  {processCreditPaymentMutation.isPending ? "Processing..." : "Confirm Payment"}
+                </Button>
+              </div>
+              {(selectedInvoice.balance || 0) === 0 && (
+                <p className="text-sm text-yellow-400 text-center">Invoice already settled.</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden Receipt Area for Image-based Printing */}
+      <div 
+        ref={receiptRef}
+        style={{
+          position: 'absolute',
+          left: '-9999px',
+          top: 0,
+          width: '58mm',
+          padding: '2mm',
+          backgroundColor: '#ffffff',
+          fontFamily: 'Consolas, monospace',
+          fontSize: '10px',
+          color: '#000000',
+          lineHeight: '1.3',
+        }}
+      >
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '3mm' }}>
+          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>Artixo POS</div>
+          <div style={{ fontSize: '9px' }}>Point of Sale Receipt</div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: '1px dashed #000', margin: '2mm 0' }} />
+
+        {/* Invoice Info */}
+        <div style={{ marginBottom: '2mm' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Date:</span>
+            <span>{new Date().toLocaleDateString()}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Time:</span>
+            <span>{new Date().toLocaleTimeString()}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Payment:</span>
+            <span>{paymentMethod}</span>
+          </div>
+          {selectedCustomer && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Customer:</span>
+              <span>{selectedCustomer.name}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: '1px dashed #000', margin: '2mm 0' }} />
+
+        {/* Items Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', marginBottom: '1mm' }}>
+          <span style={{ width: '45%' }}>Item</span>
+          <span style={{ width: '15%', textAlign: 'center' }}>Qty</span>
+          <span style={{ width: '20%', textAlign: 'right' }}>Price</span>
+          <span style={{ width: '20%', textAlign: 'right' }}>Total</span>
+        </div>
+
+        {/* Items */}
+        {cart.map((item, index) => (
+          <div key={index} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1mm' }}>
+            <span style={{ width: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.name}
+            </span>
+            <span style={{ width: '15%', textAlign: 'center' }}>{item.quantity}</span>
+            <span style={{ width: '20%', textAlign: 'right' }}>{(item.price ?? 0).toFixed(2)}</span>
+            <span style={{ width: '20%', textAlign: 'right' }}>{((item.price ?? 0) * item.quantity).toFixed(2)}</span>
+          </div>
+        ))}
+
+        {/* Divider */}
+        <div style={{ borderTop: '1px dashed #000', margin: '2mm 0' }} />
+
+        {/* Totals */}
+        <div style={{ marginBottom: '2mm' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Subtotal:</span>
+            <span>Rs. {subtotal.toFixed(2)}</span>
+          </div>
+          {discountAmount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Discount:</span>
+              <span>- Rs. {discountAmount.toFixed(2)}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '12px', marginTop: '1mm' }}>
+            <span>Grand Total:</span>
+            <span>Rs. {total.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* Payment Info */}
+        <div style={{ borderTop: '1px dashed #000', margin: '2mm 0' }} />
+        <div style={{ marginBottom: '2mm' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Paid:</span>
+            <span>Rs. {customerPaidAmount.toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+            <span>{balance >= 0 ? 'Change:' : 'Balance:'}</span>
+            <span>Rs. {Math.abs(balance).toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ borderTop: '1px dashed #000', margin: '2mm 0' }} />
+        <div style={{ textAlign: 'center', marginTop: '3mm' }}>
+          <div style={{ fontWeight: 'bold' }}>Thank You – Visit Again!</div>
+          <div style={{ fontSize: '8px', marginTop: '1mm' }}>Powered by Artixo</div>
+        </div>
+      </div>
+
+      {/* QR Scanner Modal */}
+      <QRScanner
+        open={qrScannerOpen}
+        onClose={() => setQrScannerOpen(false)}
+        onScan={(data) => {
+          handleQRScan(data);
+          setQrScannerOpen(false);
+        }}
+      />
+    </div>
+  );
+}
