@@ -289,7 +289,7 @@ export default function Items() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button className="glass bg-primary hover:bg-primary/90" onClick={resetForm}>
+            <Button className="bg-primary hover:bg-primary/90" onClick={resetForm}>
               <Plus className="mr-2 h-4 w-4" />
               Add Product
             </Button>
