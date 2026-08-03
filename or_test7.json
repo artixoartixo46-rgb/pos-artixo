@@ -1,0 +1,1 @@
+﻿{"model":"nvidia/nemotron-3-nano-30b-a3b:free","messages":[{"role":"system","content":"You are a helpful shop assistant. Keep answers short."},{"role":"user","content":"how do I print a QR code sticker for an item?"}]}

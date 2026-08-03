@@ -7,83 +7,101 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const GEMINI_MODEL = "gemini-2.0-flash";
+// Free OpenRouter model with tool-calling support. Nvidia-hosted, fast and reliable.
+const OPENROUTER_MODEL = "nvidia/nemotron-3-nano-30b-a3b:free";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
 
-// ---- Tool (function-calling) declarations sent to Gemini ----
-const toolDeclarations = [
+// ---- Tool (function-calling) declarations, OpenAI/OpenRouter format ----
+const tools = [
   {
-    name: "search_products",
-    description:
-      "Search products/items by name or barcode. Returns matching products with price, stock quantity and category.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Product name or barcode (partial match ok)" },
-      },
-      required: ["query"],
-    },
-  },
-  {
-    name: "get_low_stock_products",
-    description:
-      "Get all products whose stock quantity is at or below their minimum stock level (low stock / needs restocking).",
-    parameters: { type: "object", properties: {} },
-  },
-  {
-    name: "get_sales_summary",
-    description:
-      "Get a sales summary (total revenue and number of sales) for a given time period.",
-    parameters: {
-      type: "object",
-      properties: {
-        period: {
-          type: "string",
-          enum: ["today", "week", "month"],
-          description: "today = current calendar day, week = last 7 days, month = last 30 days",
+    type: "function",
+    function: {
+      name: "search_products",
+      description:
+        "Search products/items by name or barcode. Returns matching products with price, stock quantity and category.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Product name or barcode (partial match ok)" },
         },
+        required: ["query"],
       },
-      required: ["period"],
     },
   },
   {
-    name: "search_credit_customers",
-    description:
-      "Search credit customers by name or phone number. Returns their outstanding balance.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Customer name or phone (partial match ok)" },
-      },
-      required: ["query"],
+    type: "function",
+    function: {
+      name: "get_low_stock_products",
+      description:
+        "Get all products whose stock quantity is at or below their minimum stock level (low stock / needs restocking).",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
-    name: "add_product",
-    description:
-      "Add a new product to the inventory. Only call this when the user has clearly confirmed they want to add a specific product with a name and price.",
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        price: { type: "number", description: "Selling price" },
-        cost: { type: "number", description: "Cost price (optional)" },
-        stock_quantity: { type: "number", description: "Initial stock quantity (optional, default 0)" },
-        category: { type: "string", description: "Product category (optional)" },
+    type: "function",
+    function: {
+      name: "get_sales_summary",
+      description:
+        "Get a sales summary (total revenue and number of sales) for a given time period.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: {
+            type: "string",
+            enum: ["today", "week", "month"],
+            description: "today = current calendar day, week = last 7 days, month = last 30 days",
+          },
+        },
+        required: ["period"],
       },
-      required: ["name", "price"],
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_credit_customers",
+      description:
+        "Search credit customers by name or phone number. Returns their outstanding balance.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Customer name or phone (partial match ok)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_product",
+      description:
+        "Add a new product to the inventory. Only call this when the user has clearly confirmed they want to add a specific product with a name and price.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          price: { type: "number", description: "Selling price" },
+          cost: { type: "number", description: "Cost price (optional)" },
+          stock_quantity: { type: "number", description: "Initial stock quantity (optional, default 0)" },
+          category: { type: "string", description: "Product category (optional)" },
+        },
+        required: ["name", "price"],
+      },
     },
   },
 ];
 
 const SYSTEM_INSTRUCTION = `You are the Artixo POS support assistant, embedded inside a point-of-sale web app used by a shop owner in Sri Lanka. Currency is Rs. (LKR).
 
+The app's sidebar has these exact pages: Dashboard, POS Terminal (ring up sales), Items (product list/add/edit), Product Category, Vendors, Credit Customers (customers who buy on credit and their balances), Purchase History, Product Receiving (receiving new stock from vendors), Product Inventory, QR Code Print (generate/print QR/barcode stickers for items), Reports, and Settings. Only refer to these actual pages/features when giving how-to guidance — do not invent buttons, menus, or steps that don't fit this app.
+
 You can help in two ways:
-1. Answer "how do I..." questions about using the POS (navigating pages, features like POS Terminal, Items, QR Code Print, Reports, Credit Customers, etc.)
+1. Answer "how do I..." questions about using the POS by pointing to the correct sidebar page above.
 2. Actually look up or act on real shop data using the tools provided (search products, check stock, sales summary, credit customer balances, add a product).
 
 Rules:
@@ -91,7 +109,8 @@ Rules:
 - Always use a tool when the question needs real data (stock, price, sales, customer balance) instead of guessing.
 - Before adding a product, make sure you have at least a name and price; ask for missing details rather than inventing them.
 - Keep answers short and practical, like a helpful shop assistant, not a formal report. Use Rs. for money.
-- If a tool returns no results, say so clearly and suggest what the user could try instead.`;
+- If a tool returns no results, say so clearly and suggest what the user could try instead.
+- Never mention tool names, JSON, or internal implementation details to the user.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -99,12 +118,12 @@ serve(async (req) => {
   }
 
   try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!OPENROUTER_API_KEY) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "AI assistant is not configured yet. Ask the admin to add the GEMINI_API_KEY secret.",
+          error: "AI assistant is not configured yet. Ask the admin to add the OPENROUTER_API_KEY secret.",
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -199,56 +218,73 @@ serve(async (req) => {
       }
     }
 
-    // ---- Build Gemini "contents" from chat history ----
-    const contents = messages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
+    // ---- Build OpenAI-style message history ----
+    const chatMessages: any[] = [
+      { role: "system", content: SYSTEM_INSTRUCTION },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+    const openrouterUrl = "https://openrouter.ai/api/v1/chat/completions";
 
-    async function callGemini(currentContents: unknown[]) {
-      const res = await fetch(geminiUrl, {
+    async function callOpenRouter(currentMessages: unknown[]) {
+      const res = await fetch(openrouterUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "HTTP-Referer": "https://pos-artixo.vercel.app",
+          "X-Title": "Artixo POS Support Assistant",
+        },
         body: JSON.stringify({
-          contents: currentContents,
-          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-          tools: [{ functionDeclarations: toolDeclarations }],
+          model: OPENROUTER_MODEL,
+          messages: currentMessages,
+          tools,
         }),
       });
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Gemini API error ${res.status}: ${errText}`);
+        throw new Error(`OpenRouter API error ${res.status}: ${errText}`);
       }
       return res.json();
     }
 
-    let workingContents: any[] = [...contents];
+    let workingMessages: any[] = [...chatMessages];
     let finalText = "";
     const MAX_TOOL_ROUNDS = 4;
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const result = await callGemini(workingContents);
-      const candidate = result?.candidates?.[0];
-      const parts = candidate?.content?.parts ?? [];
+      const result = await callOpenRouter(workingMessages);
+      const choice = result?.choices?.[0];
+      const message = choice?.message;
+      const toolCalls = message?.tool_calls;
 
-      const functionCallPart = parts.find((p: any) => p.functionCall);
-
-      if (functionCallPart) {
-        const { name, args } = functionCallPart.functionCall;
-        const toolResult = await runTool(name, args ?? {});
-
-        // Echo model's function call, then supply the function response
-        workingContents.push({ role: "model", parts: [{ functionCall: functionCallPart.functionCall }] });
-        workingContents.push({
-          role: "function",
-          parts: [{ functionResponse: { name, response: toolResult } }],
+      if (toolCalls && toolCalls.length > 0) {
+        // Echo the assistant's tool-call message first
+        workingMessages.push({
+          role: "assistant",
+          content: message.content ?? null,
+          tool_calls: toolCalls,
         });
-        continue; // ask Gemini again with the tool result
+
+        for (const call of toolCalls) {
+          const fnName = call.function?.name;
+          let args: Record<string, unknown> = {};
+          try {
+            args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+          } catch {
+            args = {};
+          }
+          const toolResult = await runTool(fnName, args);
+          workingMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(toolResult),
+          });
+        }
+        continue; // ask the model again with tool results
       }
 
-      finalText = parts.map((p: any) => p.text ?? "").join("").trim();
+      finalText = (message?.content ?? "").trim();
       break;
     }
 
