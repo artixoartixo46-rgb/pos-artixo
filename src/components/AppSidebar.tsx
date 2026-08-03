@@ -39,7 +39,7 @@ export function AppSidebar() {
           <img src={artixoLogo} alt="Artixo" className="h-10 w-10 object-contain" />
           <div>
             <h1 className="text-2xl font-bold iridescent-glow tracking-tight">Artixo</h1>
-            <p className="text-xs text-muted-foreground mt-0.5 tracking-wide">Point of Sale System</p>
+            <p className="text-xs text-muted-foreground mt-0.5 tracking-wide">Wholesale Grocery POS</p>
           </div>
         </div>
 

@@ -18,12 +18,44 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { format } from "date-fns";
 import html2canvas from "html2canvas";
 
+interface PriceTier {
+  min_qty: number;
+  unit_price: number;
+}
+
 interface CartItem {
+  line_key: string;
   product_id: string;
   name: string;
   price: number;
+  base_price: number;
   quantity: number;
   barcode?: string;
+  unit_label: string;
+  sold_unit: "unit" | "case" | "weight";
+  case_size?: number;
+  case_price?: number;
+  min_order_qty: number;
+  is_weight_based: boolean;
+  tiers: PriceTier[];
+}
+
+// Given tiers (unsorted ok) and a quantity, return the best applicable unit price
+function getTieredUnitPrice(basePrice: number, tiers: PriceTier[], quantity: number): number {
+  if (!tiers || tiers.length === 0) return basePrice;
+  const applicable = [...tiers]
+    .filter((t) => quantity >= t.min_qty)
+    .sort((a, b) => b.min_qty - a.min_qty);
+  return applicable.length > 0 ? Number(applicable[0].unit_price) : basePrice;
+}
+
+// Compute the effective per-base-unit price for a cart line based on its mode and quantity
+function computeLinePrice(item: Pick<CartItem, "base_price" | "case_size" | "case_price" | "sold_unit" | "tiers">, quantity: number): number {
+  if (item.sold_unit === "case" && item.case_size && item.case_size > 0) {
+    const caseTotal = item.case_price ?? item.base_price * item.case_size;
+    return caseTotal / item.case_size;
+  }
+  return getTieredUnitPrice(item.base_price, item.tiers, quantity);
 }
 
 type DiscountType = "percentage" | "fixed";
@@ -89,16 +121,56 @@ export default function POSTerminal() {
     queryKey: ["products", searchTerm],
     queryFn: async () => {
       let query = supabase.from("products").select("*");
-      
+
       if (searchTerm) {
         query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,qr_code_number.ilike.%${searchTerm}%`);
       }
-      
+
       const { data, error } = await query.limit(20);
       if (error) throw error;
       return data || [];
     },
   });
+
+  const { data: allTiers } = useQuery({
+    queryKey: ["product-price-tiers-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("product_price_tiers").select("*");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const tiersForProduct = useCallback(
+    (productId: string): PriceTier[] =>
+      (allTiers || [])
+        .filter((t: any) => t.product_id === productId)
+        .map((t: any) => ({ min_qty: Number(t.min_qty), unit_price: Number(t.unit_price) })),
+    [allTiers]
+  );
+
+  // Build a full CartItem for a real product row, given a selling mode and starting quantity
+  const buildCartLine = useCallback(
+    (product: any, soldUnit: CartItem["sold_unit"], quantity: number): CartItem => {
+      const base = {
+        line_key: `${product.id}_${soldUnit}`,
+        product_id: product.id,
+        name: product.name,
+        base_price: Number(product.price) || 0,
+        quantity,
+        barcode: product.barcode,
+        unit_label: product.unit_label || "pcs",
+        sold_unit: soldUnit,
+        case_size: product.case_size ? Number(product.case_size) : undefined,
+        case_price: product.case_price != null ? Number(product.case_price) : undefined,
+        min_order_qty: Number(product.min_order_qty) || 1,
+        is_weight_based: !!product.is_weight_based,
+        tiers: tiersForProduct(product.id),
+      };
+      return { ...base, price: computeLinePrice(base, quantity) };
+    },
+    [tiersForProduct]
+  );
 
   // Find best matching product using phonetic matching
   const findBestMatch = useCallback((input: string, productList: any[]) => {
@@ -186,7 +258,7 @@ export default function POSTerminal() {
           phoneticMatch(productName, item.name) > 0.6
         );
         if (matchedCartItem) {
-          removeFromCart(matchedCartItem.product_id);
+          removeFromCart(matchedCartItem.line_key);
           toast({
             title: "Removed via Voice",
             description: `${matchedCartItem.name} removed from cart`,
@@ -304,11 +376,20 @@ export default function POSTerminal() {
         } else {
           // Add as temporary item if not in database
           const tempId = `temp_${parsed.item_id}_${Date.now()}`;
+          const qty = parsed.qty || 1;
+          const tempPrice = parsed.price || 0;
           setCart(prev => [...prev, {
+            line_key: tempId,
             product_id: tempId,
             name: parsed.name || "Unknown Item",
-            price: parsed.price || 0,
-            quantity: parsed.qty || 1,
+            price: tempPrice,
+            base_price: tempPrice,
+            quantity: qty,
+            unit_label: "pcs",
+            sold_unit: "unit",
+            min_order_qty: 1,
+            is_weight_based: false,
+            tiers: [],
           }]);
           toast({
             title: "Item Added",
@@ -370,31 +451,34 @@ export default function POSTerminal() {
           .single();
 
         if (existingProduct) {
-          // Add existing product to cart
-          const existingCartItem = cart.find(c => c.product_id === existingProduct.id);
+          // Add existing product to cart (as a "unit" line)
+          const lineKey = `${existingProduct.id}_unit`;
+          const existingCartItem = cart.find(c => c.line_key === lineKey);
           if (existingCartItem) {
-            setCart(prev => prev.map(c => 
-              c.product_id === existingProduct.id 
-                ? { ...c, quantity: c.quantity + item.quantity }
+            const newQty = existingCartItem.quantity + item.quantity;
+            setCart(prev => prev.map(c =>
+              c.line_key === lineKey
+                ? { ...c, quantity: newQty, price: computeLinePrice(c, newQty) }
                 : c
             ));
           } else {
-            setCart(prev => [...prev, {
-              product_id: existingProduct.id,
-              name: existingProduct.name,
-              price: Number(existingProduct.price),
-              quantity: item.quantity,
-              barcode: existingProduct.barcode,
-            }]);
+            setCart(prev => [...prev, buildCartLine(existingProduct, "unit", item.quantity)]);
           }
         } else {
-          // Add as temporary item (no product_id)
+          // Add as temporary item (no real product_id)
           const tempId = `temp_${item.itemCode}_${Date.now()}`;
           setCart(prev => [...prev, {
+            line_key: tempId,
             product_id: tempId,
             name: item.itemName,
             price: item.unitPrice,
+            base_price: item.unitPrice,
             quantity: item.quantity,
+            unit_label: "pcs",
+            sold_unit: "unit",
+            min_order_qty: 1,
+            is_weight_based: false,
+            tiers: [],
           }]);
         }
       }
@@ -764,24 +848,32 @@ export default function POSTerminal() {
         quantity: item.quantity,
         unit_price: item.price,
         total_price: item.price * item.quantity,
+        sold_unit: item.sold_unit,
       }));
 
       const { error: itemsError } = await supabase.from("sale_items").insert(saleItems);
       if (itemsError) throw itemsError;
 
-      // Update stock quantities
+      // Aggregate quantity per real product_id first, in case the same product
+      // was added as both a "unit" line and a "case" line — avoids double-deducting stock.
+      const stockDeductions = new Map<string, number>();
       for (const item of cart) {
+        if (!item.product_id || item.product_id.startsWith("temp_")) continue;
+        stockDeductions.set(item.product_id, (stockDeductions.get(item.product_id) || 0) + item.quantity);
+      }
+
+      for (const [productId, qty] of stockDeductions.entries()) {
         const { data: product } = await supabase
           .from("products")
           .select("stock_quantity")
-          .eq("id", item.product_id)
+          .eq("id", productId)
           .single();
-        
+
         if (product) {
           await supabase
             .from("products")
-            .update({ stock_quantity: product.stock_quantity - item.quantity })
-            .eq("id", item.product_id);
+            .update({ stock_quantity: product.stock_quantity - qty })
+            .eq("id", productId);
         }
       }
 
@@ -965,45 +1057,60 @@ export default function POSTerminal() {
     },
   });
 
-  const addToCart = (product: any) => {
-    const existingItem = cart.find((item) => item.product_id === product.id);
-    
+  const addToCart = (product: any, mode: "unit" | "case" = "unit") => {
+    const isCase = mode === "case" && product.case_size && Number(product.case_size) > 0;
+    const isWeightBased = !isCase && !!product.is_weight_based;
+    const soldUnit: CartItem["sold_unit"] = isCase ? "case" : isWeightBased ? "weight" : "unit";
+    const lineKey = `${product.id}_${soldUnit}`;
+    const caseSize = product.case_size ? Number(product.case_size) : undefined;
+    const minOrderQty = Number(product.min_order_qty) || 1;
+
+    const existingItem = cart.find((item) => item.line_key === lineKey);
+
     if (existingItem) {
+      const step = isCase ? (caseSize || 1) : isWeightBased ? 0.1 : 1;
+      const newQuantity = existingItem.quantity + step;
       setCart(
         cart.map((item) =>
-          item.product_id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+          item.line_key === lineKey
+            ? { ...item, quantity: newQuantity, price: computeLinePrice(item, newQuantity) }
             : item
         )
       );
     } else {
-      setCart([
-        ...cart,
-        {
-          product_id: product.id,
-          name: product.name,
-          price: Number(product.price),
-          quantity: 1,
-          barcode: product.barcode,
-        },
-      ]);
+      const initialQuantity = isCase ? (caseSize || 1) : Math.max(minOrderQty, isWeightBased ? 0.1 : 1);
+      setCart([...cart, buildCartLine(product, soldUnit, initialQuantity)]);
     }
   };
 
-  const updateQuantity = (productId: string, change: number) => {
+  const updateQuantity = (lineKey: string, change: number) => {
     setCart(
       cart
-        .map((item) =>
-          item.product_id === productId
-            ? { ...item, quantity: Math.max(0, item.quantity + change) }
-            : item
-        )
+        .map((item) => {
+          if (item.line_key !== lineKey) return item;
+          const step = item.sold_unit === "case" ? Math.sign(change) * (item.case_size || 1) : change;
+          const floor = item.sold_unit === "unit" ? item.min_order_qty : 0;
+          const newQuantity = Math.max(0, item.quantity + step);
+          if (newQuantity > 0 && newQuantity < floor) return item; // don't go below min order qty; remove via trash instead
+          return { ...item, quantity: newQuantity, price: computeLinePrice(item, newQuantity) };
+        })
         .filter((item) => item.quantity > 0)
     );
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter((item) => item.product_id !== productId));
+  const setLineQuantity = (lineKey: string, newQuantity: number) => {
+    if (newQuantity < 0) return;
+    setCart(
+      cart.map((item) =>
+        item.line_key === lineKey
+          ? { ...item, quantity: newQuantity, price: computeLinePrice(item, newQuantity) }
+          : item
+      )
+    );
+  };
+
+  const removeFromCart = (lineKey: string) => {
+    setCart(cart.filter((item) => item.line_key !== lineKey));
   };
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -1496,20 +1603,39 @@ export default function POSTerminal() {
               )}
 
               <div className="grid grid-cols-2 gap-3 max-h-[600px] overflow-y-auto mt-4">
-                {products?.map((product) => (
-                  <button
-                    key={product.id}
-                    onClick={() => addToCart(product)}
-                    className="glass-card glass-hover p-4 text-left border-border/30"
-                  >
-                    <p className="font-semibold">{product.name}</p>
-                    <p className="text-sm text-muted-foreground">{product.category}</p>
-                    <p className="text-lg font-bold text-primary mt-2">
-                      Rs. {product.price ? Number(product.price).toFixed(2) : '0.00'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">Stock: {product.stock_quantity}</p>
-                  </button>
-                ))}
+                {products?.map((product) => {
+                  const hasCase = product.case_size && Number(product.case_size) > 1;
+                  const caseTotal = product.case_price != null
+                    ? Number(product.case_price)
+                    : Number(product.price) * Number(product.case_size || 1);
+                  return (
+                    <div
+                      key={product.id}
+                      className="glass-card glass-hover p-4 text-left border-border/30"
+                    >
+                      <button onClick={() => addToCart(product)} className="w-full text-left">
+                        <p className="font-semibold">{product.name}</p>
+                        <p className="text-sm text-muted-foreground">{product.category}</p>
+                        <p className="text-lg font-bold text-primary mt-2">
+                          Rs. {product.price ? Number(product.price).toFixed(2) : '0.00'}
+                          <span className="text-xs text-muted-foreground font-normal"> /{product.unit_label || "pcs"}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Stock: {product.stock_quantity}
+                          {product.min_order_qty > 1 && ` · Min order: ${product.min_order_qty}`}
+                        </p>
+                      </button>
+                      {hasCase && (
+                        <button
+                          onClick={() => addToCart(product, "case")}
+                          className="mt-2 w-full text-xs rounded-md border border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary py-1.5 font-medium"
+                        >
+                          + Case ({product.case_size} {product.unit_label || "pcs"} = Rs. {caseTotal.toFixed(2)})
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -1527,38 +1653,59 @@ export default function POSTerminal() {
               <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4">
                 {cart.map((item) => (
                   <div
-                    key={item.product_id}
+                    key={item.line_key}
                     className="flex items-center justify-between p-3 glass-card border-border/30"
                   >
                     <div className="flex-1">
-                      <p className="font-medium">{item.name}</p>
+                      <p className="font-medium">
+                        {item.name}
+                        {item.sold_unit === "case" && (
+                          <span className="ml-1 text-xs text-primary font-normal">(case)</span>
+                        )}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        Rs. {item.price ? Number(item.price).toFixed(2) : '0.00'} each
+                        Rs. {item.price ? Number(item.price).toFixed(2) : '0.00'} / {item.unit_label || "pcs"}
+                        {item.min_order_qty > 1 && item.sold_unit === "unit" && ` · min ${item.min_order_qty}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-8 w-8 glass"
-                        onClick={() => updateQuantity(item.product_id, -1)}
-                      >
-                        <Minus className="h-4 w-4" />
-                      </Button>
-                      <span className="w-8 text-center font-bold">{item.quantity}</span>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="h-8 w-8 glass"
-                        onClick={() => updateQuantity(item.product_id, 1)}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
+                      {item.is_weight_based ? (
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.quantity}
+                          onChange={(e) => setLineQuantity(item.line_key, parseFloat(e.target.value) || 0)}
+                          className="w-20 h-8 glass border-border/50 text-center"
+                        />
+                      ) : (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 glass"
+                            onClick={() => updateQuantity(item.line_key, item.sold_unit === "case" ? -(item.case_size || 1) : -1)}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <span className="w-8 text-center font-bold">
+                            {item.sold_unit === "case" ? item.quantity / (item.case_size || 1) : item.quantity}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 glass"
+                            onClick={() => updateQuantity(item.line_key, item.sold_unit === "case" ? (item.case_size || 1) : 1)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                       <Button
                         size="icon"
                         variant="destructive"
                         className="h-8 w-8 ml-2"
-                        onClick={() => removeFromCart(item.product_id)}
+                        onClick={() => removeFromCart(item.line_key)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

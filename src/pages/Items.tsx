@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Package, Plus, Barcode, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown } from "lucide-react";
+import { Package, Plus, Barcode, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { QRCodeGenerator } from "@/components/QRCodeGenerator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -47,7 +48,14 @@ export default function Items() {
     barcode: "",
     qr_code_number: "",
     invoice_number: "",
+    unit_label: "pcs",
+    is_weight_based: false,
+    case_size: "",
+    case_price: "",
+    min_order_qty: "1",
   });
+  const [tierMinQty, setTierMinQty] = useState("");
+  const [tierUnitPrice, setTierUnitPrice] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -82,6 +90,55 @@ export default function Items() {
         .order("name");
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  const { data: tiers } = useQuery({
+    queryKey: ["product-price-tiers", editingProduct?.id],
+    queryFn: async () => {
+      if (!editingProduct?.id) return [];
+      const { data, error } = await supabase
+        .from("product_price_tiers")
+        .select("*")
+        .eq("product_id", editingProduct.id)
+        .order("min_qty");
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!editingProduct?.id,
+  });
+
+  const addTierMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingProduct?.id) return;
+      const minQty = parseFloat(tierMinQty);
+      const unitPrice = parseFloat(tierUnitPrice);
+      if (!minQty || minQty <= 0 || !unitPrice || unitPrice < 0) {
+        throw new Error("Enter a valid minimum quantity and unit price");
+      }
+      const { error } = await supabase
+        .from("product_price_tiers")
+        .insert({ product_id: editingProduct.id, min_qty: minQty, unit_price: unitPrice });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setTierMinQty("");
+      setTierUnitPrice("");
+      queryClient.invalidateQueries({ queryKey: ["product-price-tiers", editingProduct?.id] });
+      toast({ title: "Price tier added" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error?.message || "Could not add tier", variant: "destructive" });
+    },
+  });
+
+  const deleteTierMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("product_price_tiers").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["product-price-tiers", editingProduct?.id] });
     },
   });
 
@@ -185,6 +242,11 @@ export default function Items() {
       barcode: "",
       qr_code_number: "",
       invoice_number: "",
+      unit_label: "pcs",
+      is_weight_based: false,
+      case_size: "",
+      case_price: "",
+      min_order_qty: "1",
     });
     setEditingProduct(null);
   };
@@ -205,6 +267,11 @@ export default function Items() {
       barcode: product.barcode || "",
       qr_code_number: product.qr_code_number || "",
       invoice_number: product.invoice_number || "",
+      unit_label: product.unit_label || "pcs",
+      is_weight_based: !!product.is_weight_based,
+      case_size: product.case_size ?? "",
+      case_price: product.case_price ?? "",
+      min_order_qty: product.min_order_qty ?? "1",
     });
     setOpen(true);
   };
@@ -259,6 +326,10 @@ export default function Items() {
       }
     }
 
+    const parsedCaseSize = formData.case_size ? parseFloat(formData.case_size) : null;
+    const parsedCasePrice = formData.case_price ? parseFloat(formData.case_price) : null;
+    const parsedMinOrderQty = formData.min_order_qty ? parseFloat(formData.min_order_qty) : 1;
+
     const productData = {
       name: formData.name.trim(),
       category: formData.category || null,
@@ -273,6 +344,11 @@ export default function Items() {
       warranty: formData.warranty || "No Warranty",
       qr_code_number: formData.qr_code_number || null,
       invoice_number: formData.invoice_number || null,
+      unit_label: formData.unit_label || "pcs",
+      is_weight_based: formData.is_weight_based,
+      case_size: parsedCaseSize,
+      case_price: parsedCasePrice,
+      min_order_qty: parsedMinOrderQty || 1,
     };
 
     saveMutation.mutate(productData);
@@ -448,6 +524,67 @@ export default function Items() {
                   />
                 </div>
                 <div>
+                  <Label>Selling Unit</Label>
+                  <Select value={formData.unit_label} onValueChange={(val) => setFormData({ ...formData, unit_label: val, is_weight_based: ["kg", "g", "ltr"].includes(val) })}>
+                    <SelectTrigger className="glass border-border/50 bg-card z-50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="glass-card border-border/50 bg-card z-50">
+                      <SelectItem value="pcs">Pieces (pcs)</SelectItem>
+                      <SelectItem value="kg">Kilogram (kg)</SelectItem>
+                      <SelectItem value="g">Gram (g)</SelectItem>
+                      <SelectItem value="ltr">Litre (ltr)</SelectItem>
+                      <SelectItem value="sack">Sack</SelectItem>
+                      <SelectItem value="box">Box</SelectItem>
+                      <SelectItem value="bag">Bag</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 pt-6">
+                  <Checkbox
+                    id="is_weight_based"
+                    checked={formData.is_weight_based}
+                    onCheckedChange={(checked) => setFormData({ ...formData, is_weight_based: !!checked })}
+                  />
+                  <Label htmlFor="is_weight_based" className="cursor-pointer">Sold by weight (allow decimal qty)</Label>
+                </div>
+                <div>
+                  <Label>Case / Carton Size</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 24 (units per case)"
+                    value={formData.case_size}
+                    onChange={(e) => setFormData({ ...formData, case_size: e.target.value })}
+                    className="glass border-border/50"
+                  />
+                </div>
+                <div>
+                  <Label>Case Price (LKR)</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Leave blank to auto = unit price x case size"
+                    value={formData.case_price}
+                    onChange={(e) => setFormData({ ...formData, case_price: e.target.value })}
+                    className="glass border-border/50"
+                  />
+                </div>
+                <div>
+                  <Label>Minimum Order Qty</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="1"
+                    value={formData.min_order_qty}
+                    onChange={(e) => setFormData({ ...formData, min_order_qty: e.target.value })}
+                    className="glass border-border/50"
+                  />
+                </div>
+                <div>
                   <Label>Barcode</Label>
                   <div className="flex gap-2">
                     <Input
@@ -480,6 +617,76 @@ export default function Items() {
                 </div>
               </div>
               
+              {/* Bulk / Tiered Pricing (only after product exists) */}
+              {editingProduct && (
+                <div className="border border-border/50 rounded-lg p-4 glass space-y-3">
+                  <Label className="text-sm font-semibold flex items-center gap-2">
+                    <Boxes className="h-4 w-4 text-primary" />
+                    Bulk Pricing Tiers
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Set cheaper per-unit prices when a customer buys larger quantities. e.g. 10+ units = Rs. 90/unit instead of Rs. 100.
+                  </p>
+                  <div className="space-y-2">
+                    {tiers && tiers.length > 0 ? (
+                      tiers.map((tier: any) => (
+                        <div key={tier.id} className="flex items-center justify-between p-2 glass-card border-border/30 rounded-md text-sm">
+                          <span>
+                            Buy <strong>{tier.min_qty}+</strong> {formData.unit_label} → <strong>Rs. {Number(tier.unit_price).toFixed(2)}</strong> / {formData.unit_label}
+                          </span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive"
+                            onClick={() => deleteTierMutation.mutate(tier.id)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No bulk tiers set yet.</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <Label className="text-xs">Min Qty</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="e.g. 10"
+                        value={tierMinQty}
+                        onChange={(e) => setTierMinQty(e.target.value)}
+                        className="glass border-border/50"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs">Unit Price (LKR)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="e.g. 90"
+                        value={tierUnitPrice}
+                        onChange={(e) => setTierUnitPrice(e.target.value)}
+                        className="glass border-border/50"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="glass"
+                      onClick={() => addTierMutation.mutate()}
+                      disabled={addTierMutation.isPending}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* QR Code Preview */}
               {formData.qr_code_number && formData.name && formData.price && (
                 <div className="border border-border/50 rounded-lg p-4 glass space-y-2">
@@ -557,6 +764,7 @@ export default function Items() {
                   <TableHead className="text-center font-bold text-foreground">Stock</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Alert Level</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Price</TableHead>
+                  <TableHead className="text-center font-bold text-foreground">Case</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Barcode</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Actions</TableHead>
                 </TableRow>
@@ -593,6 +801,16 @@ export default function Items() {
                         </TableCell>
                         <TableCell className="text-center font-semibold">
                           LKR {product.price ? Number(product.price).toFixed(2) : "0.00"}
+                          <span className="text-xs text-muted-foreground">/{product.unit_label || "pcs"}</span>
+                        </TableCell>
+                        <TableCell className="text-center text-sm">
+                          {product.case_size ? (
+                            <span className="px-2 py-0.5 rounded-full bg-secondary/20 text-secondary text-xs">
+                              {product.case_size} {product.unit_label || "pcs"} = LKR {(product.case_price || Number(product.price) * Number(product.case_size)).toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-center font-mono text-sm">
                           {product.barcode || "N/A"}
@@ -624,7 +842,7 @@ export default function Items() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No products found
                     </TableCell>
                   </TableRow>
