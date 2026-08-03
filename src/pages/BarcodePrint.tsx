@@ -3,9 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
-import { Printer, Search, Trash2, Plus, Minus } from "lucide-react";
+import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 
@@ -15,6 +14,7 @@ type PrintQueueItem = {
   qrCodeNumber: string;
   price: number;
   quantity: number;
+  qrDataUrl: string;
 };
 
 // Universal thermal sticker roll: 2 labels side-by-side per page
@@ -27,6 +27,7 @@ const QR_SIZE_MM = 20;
 export default function BarcodePrint() {
   const [searchQuery, setSearchQuery] = useState("");
   const [printQueue, setPrintQueue] = useState<PrintQueueItem[]>([]);
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   const { data: products } = useQuery({
     queryKey: ["products-label-search", searchQuery],
@@ -44,6 +45,23 @@ export default function BarcodePrint() {
     enabled: searchQuery.length > 0,
   });
 
+  const generateQRDataUrl = async (qrCodeNumber: string, name: string, price: number) => {
+    const qrData = JSON.stringify({
+      type: "item",
+      item_id: qrCodeNumber,
+      name,
+      price,
+      currency: "LKR",
+    });
+    return QRCode.toDataURL(qrData, { width: 400, margin: 1, errorCorrectionLevel: "H" });
+  };
+
+  // Auto-truncate long names to fit sticker width
+  const fitName = (name: string, maxChars: number) => {
+    if (name.length <= maxChars) return name;
+    return name.substring(0, maxChars - 2) + "..";
+  };
+
   const addToQueue = async (product: any) => {
     const existing = printQueue.find((item) => item.id === product.id);
     if (existing) {
@@ -54,28 +72,36 @@ export default function BarcodePrint() {
       return;
     }
 
-    let qrCodeNumber = product.qr_code_number;
-    if (!qrCodeNumber) {
-      const { data: nextQR, error: qrError } = await supabase.rpc("get_next_qr_code_number");
-      if (qrError) {
-        toast.error("Failed to generate QR code number");
-        return;
+    setAddingId(product.id);
+    try {
+      let qrCodeNumber = product.qr_code_number;
+      if (!qrCodeNumber) {
+        const { data: nextQR, error: qrError } = await supabase.rpc("get_next_qr_code_number");
+        if (qrError) {
+          toast.error("Failed to generate QR code number");
+          return;
+        }
+        qrCodeNumber = nextQR;
+        await supabase.from("products").update({ qr_code_number: qrCodeNumber }).eq("id", product.id);
       }
-      qrCodeNumber = nextQR;
-      await supabase.from("products").update({ qr_code_number: qrCodeNumber }).eq("id", product.id);
-    }
 
-    setPrintQueue([
-      ...printQueue,
-      {
-        id: product.id,
-        name: product.name,
-        qrCodeNumber,
-        price: product.price,
-        quantity: 1,
-      },
-    ]);
-    toast.success(`${product.name} added to print queue`);
+      const qrDataUrl = await generateQRDataUrl(qrCodeNumber, product.name, product.price);
+
+      setPrintQueue((prev) => [
+        ...prev,
+        {
+          id: product.id,
+          name: product.name,
+          qrCodeNumber,
+          price: product.price,
+          quantity: 1,
+          qrDataUrl,
+        },
+      ]);
+      toast.success(`${product.name} added to print queue`);
+    } finally {
+      setAddingId(null);
+    }
   };
 
   const updateQuantity = (id: string, delta: number) => {
@@ -90,53 +116,30 @@ export default function BarcodePrint() {
     setPrintQueue(printQueue.filter((item) => item.id !== id));
   };
 
-  const generateQRDataUrl = async (item: PrintQueueItem) => {
-    const qrData = JSON.stringify({
-      type: "item",
-      item_id: item.qrCodeNumber,
-      name: item.name,
-      price: item.price,
-      currency: "LKR",
-    });
-    return QRCode.toDataURL(qrData, { width: 600, margin: 1, errorCorrectionLevel: "H" });
-  };
+  const totalLabels = printQueue.reduce((sum, item) => sum + item.quantity, 0);
+  const totalValue = printQueue.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  // Auto-truncate long names to fit sticker width
-  const fitName = (name: string, maxChars: number) => {
-    if (name.length <= maxChars) return name;
-    return name.substring(0, maxChars - 2) + "..";
-  };
-
-  const handlePrint = async () => {
+  const handlePrint = () => {
     if (printQueue.length === 0) {
       toast.error("No items in print queue");
       return;
     }
 
-    toast.info("Generating labels...");
-
-    // Pre-generate all QR code data URLs
-    const qrMap: Record<string, string> = {};
-    for (const item of printQueue) {
-      qrMap[item.id] = await generateQRDataUrl(item);
-    }
-
     // Flatten queue into individual labels (doubled for front+back)
-    const allLabels: { item: PrintQueueItem; qrUrl: string }[] = [];
+    const allLabels: { item: PrintQueueItem }[] = [];
     for (const item of printQueue) {
       for (let i = 0; i < item.quantity; i++) {
-        allLabels.push({ item, qrUrl: qrMap[item.id] });
-        allLabels.push({ item, qrUrl: qrMap[item.id] }); // double-sided
+        allLabels.push({ item });
+        allLabels.push({ item }); // double-sided
       }
     }
 
-    // Build labels - rendered in a grid (2 side-by-side per row)
-    const labelsHtml = allLabels.map(({ item, qrUrl }) => {
+    const labelsHtml = allLabels.map(({ item }) => {
       const displayName = fitName(item.name, 16);
       const priceText = `Rs.${item.price.toFixed(2)}`;
       return `<div class="label">
           <div class="qr-section">
-            <img src="${qrUrl}" class="qr-img" />
+            <img src="${item.qrDataUrl}" class="qr-img" />
           </div>
           <div class="info-section">
             <div class="product-name">${displayName}</div>
@@ -145,8 +148,6 @@ export default function BarcodePrint() {
           </div>
         </div>`;
     }).join("");
-
-    const totalLabels = printQueue.reduce((sum, item) => sum + item.quantity, 0);
 
     const printContent = `<!DOCTYPE html>
 <html>
@@ -246,62 +247,84 @@ export default function BarcodePrint() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold neon-text">
+        <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
           QR Code Sticker Print
         </h1>
         <p className="text-muted-foreground mt-2">
-          Search product → Add to queue → Print A4 sticker sheets (2×8 grid)
+          Search a product, add it to the queue, then print onto a {LABEL_W}×{LABEL_H}mm thermal sticker roll.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Search & Add */}
-        <Card className="p-6 glass neon-border">
-          <Label className="text-lg font-semibold mb-4 block neon-text">Search Products</Label>
+        <Card className="glass-card border-border/50 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Search className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Search Products</h2>
+          </div>
           <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Type product name, QR number, or barcode..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-10 glass border-border/50"
               autoFocus
             />
           </div>
 
           {searchQuery && products && products.length > 0 && (
-            <div className="mt-4 space-y-2 max-h-72 overflow-y-auto">
+            <div className="mt-4 space-y-2 max-h-80 overflow-y-auto pr-1">
               {products.map((product) => (
-                <div
+                <button
                   key={product.id}
-                  className="flex items-center justify-between p-3 bg-background/50 rounded-lg hover:bg-background/80 transition-colors cursor-pointer"
                   onClick={() => addToQueue(product)}
+                  disabled={addingId === product.id}
+                  className="w-full flex items-center justify-between gap-3 p-3 glass-card glass-hover border-border/30 rounded-xl text-left disabled:opacity-60"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="font-medium truncate">{product.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {product.qr_code_number ? `QR: ${product.qr_code_number}` : "QR: Auto"} • LKR {product.price}
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {product.qr_code_number ? `QR #${product.qr_code_number}` : "QR will be generated"} · Rs. {Number(product.price).toFixed(2)}
                     </p>
                   </div>
-                  <Button size="sm" variant="ghost" className="ml-2 shrink-0">
+                  <span className="shrink-0 h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center">
                     <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
+                  </span>
+                </button>
               ))}
             </div>
           )}
 
           {searchQuery && products && products.length === 0 && (
-            <p className="text-muted-foreground text-center py-6 text-sm">No products found</p>
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <PackageSearch className="h-8 w-8 text-muted-foreground/50" />
+              <p className="text-muted-foreground text-sm">No products match "{searchQuery}"</p>
+            </div>
+          )}
+
+          {!searchQuery && (
+            <div className="flex flex-col items-center gap-2 py-10 text-center">
+              <QrCode className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-muted-foreground text-sm">Start typing to find a product</p>
+            </div>
           )}
         </Card>
 
         {/* Print Queue */}
-        <Card className="p-6 glass neon-border">
+        <Card className="glass-card border-border/50 p-6">
           <div className="flex items-center justify-between mb-4">
-            <Label className="text-lg font-semibold neon-text">
-              Print Queue ({printQueue.reduce((s, i) => s + i.quantity, 0)} labels)
-            </Label>
+            <div className="flex items-center gap-2">
+              <Printer className="h-5 w-5 text-primary" />
+              <h2 className="text-lg font-semibold">
+                Print Queue
+                {printQueue.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">
+                    {totalLabels} label{totalLabels !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </h2>
+            </div>
             {printQueue.length > 0 && (
               <Button variant="destructive" size="sm" onClick={() => setPrintQueue([])}>
                 Clear
@@ -309,27 +332,29 @@ export default function BarcodePrint() {
             )}
           </div>
 
-          <div className="space-y-3 max-h-72 overflow-y-auto">
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {printQueue.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8 text-sm">
-                Click a product to add it to the print queue
-              </p>
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <Printer className="h-8 w-8 text-muted-foreground/40" />
+                <p className="text-muted-foreground text-sm">Click a product on the left to add it here</p>
+              </div>
             ) : (
               printQueue.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 p-3 bg-background/50 rounded-lg">
+                <div key={item.id} className="flex items-center gap-3 p-3 glass-card border-border/30 rounded-xl">
+                  <img src={item.qrDataUrl} alt={`QR for ${item.name}`} className="h-10 w-10 rounded-md border border-border/40 bg-white p-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">QR: {item.qrCodeNumber} • Rs.{item.price}</p>
+                    <p className="text-xs text-muted-foreground">#{item.qrCodeNumber} · Rs. {item.price.toFixed(2)}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => updateQuantity(item.id, -1)}>
+                    <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, -1)}>
                       <Minus className="h-3 w-3" />
                     </Button>
-                    <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => updateQuantity(item.id, 1)}>
+                    <span className="w-7 text-center text-sm font-semibold">{item.quantity}</span>
+                    <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, 1)}>
                       <Plus className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeFromQueue(item.id)}>
+                    <Button size="icon" variant="destructive" className="h-7 w-7 ml-1" onClick={() => removeFromQueue(item.id)}>
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
@@ -338,36 +363,50 @@ export default function BarcodePrint() {
             )}
           </div>
 
-          {/* Print Preview - Thermal Roll Sample */}
           {printQueue.length > 0 && (
-            <div className="mt-4 p-3 rounded-lg border border-border/30 bg-white">
-              <p className="text-xs text-muted-foreground mb-2 text-center">Sticker Preview (2 × 50×25mm side-by-side)</p>
-              <div className="mx-auto grid grid-cols-2 gap-0" style={{ width: "300px" }}>
-                {printQueue.slice(0, 6).flatMap((item, idx) => [0, 1].map((side) => (
-                  <div key={`${idx}-${side}`} className="border border-muted flex items-center p-1" style={{ height: "38px" }}>
-                    <div className="w-8 h-8 shrink-0 bg-muted rounded-sm flex items-center justify-center text-foreground" style={{ fontSize: "6px" }}>QR</div>
-                    <div className="pl-1 overflow-hidden flex-1">
-                      <div className="text-foreground font-bold truncate" style={{ fontSize: "7px" }}>{item.name.substring(0, 14)}</div>
-                      <div className="text-foreground font-bold" style={{ fontSize: "8px" }}>Rs.{item.price.toFixed(2)}</div>
-                      <div className="text-muted-foreground" style={{ fontSize: "6px" }}>#{item.qrCodeNumber}</div>
-                    </div>
-                  </div>
-                )))}
+            <>
+              <div className="mt-4 flex items-center justify-between p-3 glass-card border-border/30 rounded-xl">
+                <span className="text-sm text-muted-foreground">Total value</span>
+                <span className="font-bold text-primary">Rs. {totalValue.toFixed(2)}</span>
               </div>
-            </div>
+
+              {/* Live sticker preview */}
+              <div className="mt-4 p-3 rounded-xl border border-border/30 bg-white">
+                <p className="text-xs text-muted-foreground mb-2 text-center">
+                  Live preview · {LABEL_W}×{LABEL_H}mm, 2 side-by-side, double-sided
+                </p>
+                <div className="mx-auto grid grid-cols-2 gap-0 border border-border/20 rounded-md overflow-hidden" style={{ width: "300px" }}>
+                  {printQueue.slice(0, 6).flatMap((item) => [0, 1].map((side) => (
+                    <div key={`${item.id}-${side}`} className="border border-border/10 flex items-center p-1 bg-white" style={{ height: "38px" }}>
+                      <img src={item.qrDataUrl} alt="" className="w-8 h-8 shrink-0" />
+                      <div className="pl-1 overflow-hidden flex-1">
+                        <div className="text-black font-bold truncate" style={{ fontSize: "7px" }}>{fitName(item.name, 16)}</div>
+                        <div className="text-black font-bold" style={{ fontSize: "8px" }}>Rs.{item.price.toFixed(2)}</div>
+                        <div className="text-neutral-500" style={{ fontSize: "6px" }}>#{item.qrCodeNumber}</div>
+                      </div>
+                    </div>
+                  )))}
+                </div>
+                {totalLabels * 2 > 6 && (
+                  <p className="text-[11px] text-muted-foreground text-center mt-2">
+                    +{totalLabels * 2 - 6} more sticker{totalLabels * 2 - 6 !== 1 ? "s" : ""} not shown in preview
+                  </p>
+                )}
+              </div>
+            </>
           )}
 
           <Button
-            className="w-full mt-4 neon-glow"
+            className="w-full mt-4 bg-primary hover:bg-primary/90"
             onClick={handlePrint}
             disabled={printQueue.length === 0}
             size="lg"
           >
             <Printer className="mr-2 h-5 w-5" />
-            Print Thermal Stickers (50×25mm)
+            Print Thermal Stickers ({LABEL_W}×{LABEL_H}mm)
           </Button>
           <p className="text-xs text-muted-foreground text-center mt-2">
-            Universal thermal sticker • 2 labels side-by-side • Double-sided
+            Universal thermal sticker roll · 2 labels side-by-side · double-sided
           </p>
         </Card>
       </div>
