@@ -17,6 +17,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
 import html2canvas from "html2canvas";
+import {
+  isWebUSBSupported,
+  getSavedPrinterInfo,
+  isAutoDirectPrintEnabled,
+  printReceiptDirect,
+} from "@/lib/thermalPrinter";
 
 interface PriceTier {
   min_qty: number;
@@ -151,6 +157,15 @@ export default function POSTerminal() {
       const { data, error } = await query.limit(20);
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  const { data: shopSettings } = useQuery({
+    queryKey: ["settings-for-receipt"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("settings").select("business_name, address, phone").limit(1).single();
+      if (error && error.code !== "PGRST116") throw error;
+      return data;
     },
   });
 
@@ -830,6 +845,54 @@ export default function POSTerminal() {
     }, 400);
   };
 
+  // Prints a sale receipt: direct to a connected USB thermal printer if available/enabled,
+  // otherwise falls back to the browser print dialog (and always falls back on any error).
+  const printReceipt = async (saleData: {
+    invoiceNumber: string;
+    items: CartItem[];
+    subtotal: number;
+    discountAmount: number;
+    total: number;
+    paidAmount: number;
+    balance: number;
+    paymentMethod: string;
+    customerName?: string;
+  }) => {
+    const canDirectPrint = isWebUSBSupported() && !!getSavedPrinterInfo() && isAutoDirectPrintEnabled();
+    if (canDirectPrint) {
+      try {
+        await printReceiptDirect({
+          businessName: shopSettings?.business_name || undefined,
+          businessAddress: shopSettings?.address || undefined,
+          businessPhone: shopSettings?.phone || undefined,
+          invoiceNumber: saleData.invoiceNumber,
+          items: saleData.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            unit_label: item.unit_label,
+          })),
+          subtotal: saleData.subtotal,
+          discountAmount: saleData.discountAmount,
+          total: saleData.total,
+          paidAmount: saleData.paidAmount,
+          balance: saleData.balance,
+          paymentMethod: saleData.paymentMethod,
+          customerName: saleData.customerName,
+        });
+        return;
+      } catch (err: any) {
+        toast({
+          title: "Thermal printer unavailable",
+          description: (err?.message || "Falling back to browser print.") + " Using browser print instead.",
+          variant: "destructive",
+        });
+        // fall through to browser print
+      }
+    }
+    printSaleReceipt(saleData);
+  };
+
   const createSaleMutation = useMutation({
     mutationFn: async () => {
       // Validate cart
@@ -953,7 +1016,7 @@ export default function POSTerminal() {
       setLastReceiptData(data.receiptData);
       
       // Auto print receipt
-      printSaleReceipt(data.receiptData);
+      printReceipt(data.receiptData);
 
       const message = paymentMethod === "Credit" 
         ? "Credit sale recorded successfully!" 
@@ -1873,7 +1936,7 @@ export default function POSTerminal() {
                     variant="outline"
                     className="glass border-border/50"
                     disabled={!lastReceiptData}
-                    onClick={() => lastReceiptData && printSaleReceipt(lastReceiptData)}
+                    onClick={() => lastReceiptData && printReceipt(lastReceiptData)}
                   >
                     <Printer className="h-4 w-4 mr-2" />
                     Reprint Last
