@@ -13,7 +13,10 @@ import {
   AlertTriangle,
   Building2,
   Receipt,
+  ClipboardList,
+  Phone,
 } from "lucide-react";
+import { computeReorderSuggestions, groupSuggestionsByVendor } from "@/lib/reorderSuggestions";
 import {
   BarChart,
   Bar,
@@ -110,6 +113,14 @@ export default function Reports() {
       return data || [];
     },
   });
+
+  const { data: reorderSuggestions, isLoading: reorderLoading } = useQuery({
+    queryKey: ["reorder-suggestions"],
+    queryFn: computeReorderSuggestions,
+  });
+
+  const reorderGroups = useMemo(() => groupSuggestionsByVendor(reorderSuggestions || []), [reorderSuggestions]);
+  const reorderTotalCost = (reorderSuggestions || []).reduce((sum, s) => sum + (s.estimatedCost || 0), 0);
 
   // ---- Revenue summary ----
   const totalRevenue = (sales || []).reduce((sum: number, s: any) => sum + Number(s.total_amount || 0), 0);
@@ -240,6 +251,90 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Auto-reorder suggestions */}
+      <Card className="glass-card border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-primary" />
+              Auto-Reorder Suggestions
+            </span>
+            {(reorderSuggestions?.length || 0) > 0 && (
+              <span className="text-sm font-normal text-muted-foreground">
+                {reorderSuggestions!.length} item{reorderSuggestions!.length === 1 ? "" : "s"} to reorder
+                {reorderTotalCost > 0 && ` · est. Rs. ${reorderTotalCost.toFixed(2)}`}
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {reorderLoading ? (
+            <p className="text-muted-foreground text-sm">Crunching last {30} days of sales…</p>
+          ) : !reorderSuggestions || reorderSuggestions.length === 0 ? (
+            <p className="text-muted-foreground text-sm">Nothing needs reordering right now — stock looks healthy.</p>
+          ) : (
+            <div className="space-y-5">
+              {reorderGroups.map(([vendorId, group]) => (
+                <div key={vendorId}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    <p className="font-semibold">{group.vendorName}</p>
+                    {group.vendorPhone && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="h-3 w-3" /> {group.vendorPhone}
+                      </span>
+                    )}
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">Stock Left</TableHead>
+                        <TableHead className="text-right">Days Left</TableHead>
+                        <TableHead className="text-right">Suggested Order</TableHead>
+                        <TableHead className="text-right">Est. Cost</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {group.items.map((item) => (
+                        <TableRow key={item.productId}>
+                          <TableCell className="font-medium">
+                            {item.name}
+                            <Badge
+                              variant={item.reason === "out_of_stock" ? "destructive" : item.reason === "below_min_stock" ? "secondary" : "outline"}
+                              className="ml-2 text-[10px]"
+                            >
+                              {item.reason === "out_of_stock" ? "Out of stock" : item.reason === "below_min_stock" ? "Below min" : "Running low"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {item.stockQuantity} {item.unitLabel}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {item.daysOfStockLeft === null ? "—" : `${item.daysOfStockLeft.toFixed(1)}d`}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-primary">
+                            {item.suggestedQty} {item.unitLabel}
+                            {item.caseSize && item.caseSize > 1 && ` (${(item.suggestedQty / item.caseSize).toFixed(0)} case${item.suggestedQty / item.caseSize === 1 ? "" : "s"})`}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {item.estimatedCost != null ? `Rs. ${item.estimatedCost.toFixed(2)}` : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                Based on the last 30 days of sales, targeting ~14 days of stock cover. Vendor is inferred from the
+                last Product Receiving entry for each item — items never received from a vendor show as unassigned.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Case vs Unit vs Weight breakdown */}

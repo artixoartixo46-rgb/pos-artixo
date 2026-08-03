@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle, ClipboardList, ArrowRight } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { computeReorderSuggestions } from "@/lib/reorderSuggestions";
 
 export default function Dashboard() {
   const { data: todaySales } = useQuery({
@@ -147,6 +150,11 @@ export default function Dashboard() {
 
       return aggregated?.sort((a: any, b: any) => b.value - a.value) || [];
     },
+  });
+
+  const { data: reorderSuggestions } = useQuery({
+    queryKey: ["reorder-suggestions"],
+    queryFn: computeReorderSuggestions,
   });
 
   const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--accent))', 'hsl(var(--chart-1))', 'hsl(var(--chart-2))'];
@@ -388,6 +396,61 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Auto-reorder suggestions */}
+      <Card className="glass-card border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-primary" />
+              Reorder Suggestions
+            </span>
+            <Link to="/reports" className="text-sm font-normal text-primary flex items-center gap-1 hover:underline">
+              View full report <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!reorderSuggestions || reorderSuggestions.length === 0 ? (
+            <p className="text-center text-muted-foreground py-6">Nothing needs reordering right now — stock looks healthy.</p>
+          ) : (
+            <div className="space-y-2">
+              {reorderSuggestions.slice(0, 5).map((item) => (
+                <div
+                  key={item.productId}
+                  className="flex items-center justify-between p-3 rounded-lg glass-card border border-border/30"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {item.name}
+                      <Badge
+                        variant={item.reason === "out_of_stock" ? "destructive" : item.reason === "below_min_stock" ? "secondary" : "outline"}
+                        className="ml-2 text-[10px]"
+                      >
+                        {item.reason === "out_of_stock" ? "Out of stock" : item.reason === "below_min_stock" ? "Below min" : "Running low"}
+                      </Badge>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.vendorName ? `Order from ${item.vendorName}` : "No vendor on record"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-primary">
+                      Order {item.suggestedQty} {item.unitLabel}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{item.stockQuantity} {item.unitLabel} left</p>
+                  </div>
+                </div>
+              ))}
+              {reorderSuggestions.length > 5 && (
+                <p className="text-xs text-muted-foreground text-center pt-1">
+                  +{reorderSuggestions.length - 5} more in Reports
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
