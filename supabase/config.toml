@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.scan-vendor-bill]
 verify_jwt = false
+
+[functions.chat-assistant]
+verify_jwt = false
