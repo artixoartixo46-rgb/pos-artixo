@@ -23,6 +23,17 @@ import {
   isAutoDirectPrintEnabled,
   printReceiptDirect,
 } from "@/lib/thermalPrinter";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import {
+  getCachedPriceTiers,
+  adjustCachedStock,
+  queueOfflineSale,
+  getPendingSales,
+  searchCachedProducts,
+  findCachedProductByCode,
+} from "@/lib/offlineDb";
+import { refreshOfflineCache, syncPendingSales } from "@/lib/offlineSync";
+import { WifiOff, RefreshCw } from "lucide-react";
 
 interface PriceTier {
   min_qty: number;
@@ -87,6 +98,9 @@ interface CreditInvoice {
 }
 
 export default function POSTerminal() {
+  const isOnline = useOnlineStatus();
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [lastScannedQR, setLastScannedQR] = useState("");
@@ -148,15 +162,23 @@ export default function POSTerminal() {
   const { data: products } = useQuery({
     queryKey: ["products", searchTerm],
     queryFn: async () => {
-      let query = supabase.from("products").select("*");
-
-      if (searchTerm) {
-        query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,qr_code_number.ilike.%${searchTerm}%`);
+      if (!navigator.onLine) {
+        return await searchCachedProducts(searchTerm);
       }
+      try {
+        let query = supabase.from("products").select("*");
 
-      const { data, error } = await query.limit(20);
-      if (error) throw error;
-      return data || [];
+        if (searchTerm) {
+          query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,qr_code_number.ilike.%${searchTerm}%`);
+        }
+
+        const { data, error } = await query.limit(20);
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        // Network hiccup - fall back to the last cached catalog so billing keeps going.
+        return await searchCachedProducts(searchTerm);
+      }
     },
   });
 
@@ -172,9 +194,14 @@ export default function POSTerminal() {
   const { data: allTiers } = useQuery({
     queryKey: ["product-price-tiers-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("product_price_tiers").select("*");
-      if (error) throw error;
-      return data || [];
+      if (!navigator.onLine) return getCachedPriceTiers();
+      try {
+        const { data, error } = await supabase.from("product_price_tiers").select("*");
+        if (error) throw error;
+        return data || [];
+      } catch (err) {
+        return getCachedPriceTiers();
+      }
     },
   });
 
@@ -185,6 +212,62 @@ export default function POSTerminal() {
         .map((t: any) => ({ min_qty: Number(t.min_qty), unit_price: Number(t.unit_price) })),
     [allTiers]
   );
+
+  // ---- Offline billing: cache warmup + queued-sale sync ----
+  const refreshPendingSyncCount = useCallback(async () => {
+    const pending = await getPendingSales();
+    setPendingSyncCount(pending.length);
+  }, []);
+
+  const runSync = useCallback(async () => {
+    if (!navigator.onLine) return;
+    setIsSyncing(true);
+    try {
+      const result = await syncPendingSales();
+      await refreshPendingSyncCount();
+      if (result.succeeded > 0 || result.failed > 0) {
+        queryClient.invalidateQueries({ queryKey: ["products"] });
+        queryClient.invalidateQueries({ queryKey: ["today-sales"] });
+        queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
+      }
+      if (result.succeeded > 0) {
+        toast({
+          title: "Synced",
+          description: `${result.succeeded} offline sale${result.succeeded === 1 ? "" : "s"} synced to the server.`,
+        });
+      }
+      if (result.failed > 0) {
+        toast({
+          title: "Sync issue",
+          description: `${result.failed} offline sale${result.failed === 1 ? "" : "s"} couldn't sync - will retry.`,
+          variant: "destructive",
+        });
+      }
+    } catch {
+      // best-effort; leave items queued for next attempt
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [queryClient, toast, refreshPendingSyncCount]);
+
+  // On mount: warm the offline cache and flush any sales queued from a previous offline session.
+  useEffect(() => {
+    refreshPendingSyncCount();
+    if (navigator.onLine) {
+      refreshOfflineCache().catch(() => {});
+      runSync();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When connectivity comes back, refresh the catalog cache and flush the queue automatically.
+  useEffect(() => {
+    if (isOnline) {
+      refreshOfflineCache().catch(() => {});
+      runSync();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   // Build a full CartItem for a real product row, given a selling mode and starting quantity
   const buildCartLine = useCallback(
@@ -585,15 +668,32 @@ export default function POSTerminal() {
     // Real product barcodes (from a USB/Bluetooth scanner reading packaging, EAN/UPC/Code128 etc.)
     // live in the `barcode` column - try an exact match first since that's the common case.
     if (!qrNumber && qrContent.trim().length >= 4) {
-      const { data: byBarcode, error: barcodeError } = await supabase
-        .from("products")
-        .select("*")
-        .eq("barcode", qrContent.trim())
-        .limit(1);
+      const trimmed = qrContent.trim();
+      if (!navigator.onLine) {
+        const cached = await findCachedProductByCode(trimmed);
+        if (cached) {
+          addScannedProduct(cached, qrContent);
+          return;
+        }
+      } else {
+        try {
+          const { data: byBarcode, error: barcodeError } = await supabase
+            .from("products")
+            .select("*")
+            .eq("barcode", trimmed)
+            .limit(1);
 
-      if (!barcodeError && byBarcode && byBarcode.length > 0) {
-        addScannedProduct(byBarcode[0], qrContent);
-        return;
+          if (!barcodeError && byBarcode && byBarcode.length > 0) {
+            addScannedProduct(byBarcode[0], qrContent);
+            return;
+          }
+        } catch {
+          const cached = await findCachedProductByCode(trimmed);
+          if (cached) {
+            addScannedProduct(cached, qrContent);
+            return;
+          }
+        }
       }
     }
 
@@ -606,14 +706,33 @@ export default function POSTerminal() {
     }
 
     if (qrNumber) {
-      const { data: matchedProducts, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("qr_code_number", qrNumber)
-        .limit(1);
+      if (!navigator.onLine) {
+        const cached = await findCachedProductByCode(qrNumber);
+        if (cached) {
+          addScannedProduct(cached, qrContent);
+        } else {
+          playScanBeep(false);
+          toast({ title: "Unknown Code (offline)", description: `No cached product for: ${qrNumber}`, variant: "destructive" });
+        }
+        return;
+      }
+      try {
+        const { data: matchedProducts, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("qr_code_number", qrNumber)
+          .limit(1);
 
-      if (!error && matchedProducts && matchedProducts.length > 0) {
-        addScannedProduct(matchedProducts[0], qrContent);
+        if (!error && matchedProducts && matchedProducts.length > 0) {
+          addScannedProduct(matchedProducts[0], qrContent);
+          return;
+        }
+      } catch {
+        // fall through to cache check below
+      }
+      const cached = await findCachedProductByCode(qrNumber);
+      if (cached) {
+        addScannedProduct(cached, qrContent);
       } else {
         playScanBeep(false);
         toast({
@@ -893,6 +1012,12 @@ export default function POSTerminal() {
     printSaleReceipt(saleData);
   };
 
+  const isNetworkError = (err: any) => {
+    if (!navigator.onLine) return true;
+    const msg = String(err?.message || err || "").toLowerCase();
+    return msg.includes("failed to fetch") || msg.includes("network") || msg.includes("load failed");
+  };
+
   const createSaleMutation = useMutation({
     mutationFn: async () => {
       // Validate cart
@@ -901,8 +1026,8 @@ export default function POSTerminal() {
       }
 
       const saleSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      const saleDiscountAmount = discountType === "percentage" 
-        ? (saleSubtotal * discount) / 100 
+      const saleDiscountAmount = discountType === "percentage"
+        ? (saleSubtotal * discount) / 100
         : discount;
       const totalAmount = saleSubtotal - saleDiscountAmount;
       const saleBalance = customerPaidAmount - totalAmount;
@@ -916,116 +1041,164 @@ export default function POSTerminal() {
         throw new Error("Please select a credit customer");
       }
 
-      const invoiceNumber = await supabase.rpc("generate_invoice_number");
-
-      // Determine invoice status
-      let status = "closed";
-      if (paymentMethod === "Credit") {
-        if (customerPaidAmount === 0) {
-          status = "open";
-        } else if (customerPaidAmount < totalAmount) {
-          status = "partial";
-        }
-      }
-
-      const { data: sale, error: saleError } = await supabase
-        .from("sales")
-        .insert({
-          invoice_number: invoiceNumber.data,
-          customer_id: selectedCustomer?.id || null,
-          customer_name: selectedCustomer?.name || null,
-          customer_phone: selectedCustomer?.phone || null,
-          subtotal: saleSubtotal,
-          discount_amount: saleDiscountAmount,
-          total_amount: totalAmount,
-          payment_method: paymentMethod,
-          paid_amount: customerPaidAmount,
-          balance: saleBalance,
-          status,
-        })
-        .select()
-        .single();
-
-      if (saleError) throw saleError;
-
-      // Update credit customer outstanding balance
-      if (paymentMethod === "Credit" && selectedCustomer) {
-        const newBalance = selectedCustomer.outstanding_balance + totalAmount - customerPaidAmount;
-        const { error: updateError } = await supabase
-          .from("credit_customers")
-          .update({ outstanding_balance: newBalance })
-          .eq("id", selectedCustomer.id);
-        
-        if (updateError) throw updateError;
-      }
-
-      const saleItems = cart.map((item) => ({
-        sale_id: sale.id,
-        product_id: item.product_id,
-        product_name: item.name,
-        quantity: item.quantity,
-        unit_price: item.price,
-        total_price: item.price * item.quantity,
-        sold_unit: item.sold_unit,
-      }));
-
-      const { error: itemsError } = await supabase.from("sale_items").insert(saleItems);
-      if (itemsError) throw itemsError;
-
-      // Aggregate quantity per real product_id first, in case the same product
-      // was added as both a "unit" line and a "case" line — avoids double-deducting stock.
-      const stockDeductions = new Map<string, number>();
-      for (const item of cart) {
-        if (!item.product_id || item.product_id.startsWith("temp_")) continue;
-        stockDeductions.set(item.product_id, (stockDeductions.get(item.product_id) || 0) + item.quantity);
-      }
-
-      for (const [productId, qty] of stockDeductions.entries()) {
-        const { data: product } = await supabase
-          .from("products")
-          .select("stock_quantity")
-          .eq("id", productId)
-          .single();
-
-        if (product) {
-          await supabase
-            .from("products")
-            .update({ stock_quantity: product.stock_quantity - qty })
-            .eq("id", productId);
-        }
-      }
-
-      // Return data for receipt printing
-      return {
-        sale,
-        receiptData: {
-          invoiceNumber: invoiceNumber.data,
-          items: [...cart],
+      const queueOffline = async () => {
+        const localInvoice = `OFFLINE-${Date.now().toString(36).toUpperCase()}`;
+        await queueOfflineSale({
+          cart,
           subtotal: saleSubtotal,
           discountAmount: saleDiscountAmount,
           total: totalAmount,
           paidAmount: customerPaidAmount,
           balance: saleBalance,
           paymentMethod,
-          customerName: selectedCustomer?.name,
+          customerId: selectedCustomer?.id || null,
+          customerName: selectedCustomer?.name || null,
+          customerPhone: selectedCustomer?.phone || null,
+        });
+        for (const item of cart) {
+          if (!item.product_id || item.product_id.startsWith("temp_")) continue;
+          await adjustCachedStock(item.product_id, item.quantity);
         }
+        await refreshPendingSyncCount();
+        return {
+          sale: null,
+          offline: true as const,
+          receiptData: {
+            invoiceNumber: localInvoice,
+            items: [...cart],
+            subtotal: saleSubtotal,
+            discountAmount: saleDiscountAmount,
+            total: totalAmount,
+            paidAmount: customerPaidAmount,
+            balance: saleBalance,
+            paymentMethod,
+            customerName: selectedCustomer?.name,
+          },
+        };
       };
+
+      if (!navigator.onLine) {
+        return queueOffline();
+      }
+
+      try {
+        const invoiceNumber = await supabase.rpc("generate_invoice_number");
+        if (invoiceNumber.error) throw invoiceNumber.error;
+
+        // Determine invoice status
+        let status = "closed";
+        if (paymentMethod === "Credit") {
+          if (customerPaidAmount === 0) {
+            status = "open";
+          } else if (customerPaidAmount < totalAmount) {
+            status = "partial";
+          }
+        }
+
+        const { data: sale, error: saleError } = await supabase
+          .from("sales")
+          .insert({
+            invoice_number: invoiceNumber.data,
+            customer_id: selectedCustomer?.id || null,
+            customer_name: selectedCustomer?.name || null,
+            customer_phone: selectedCustomer?.phone || null,
+            subtotal: saleSubtotal,
+            discount_amount: saleDiscountAmount,
+            total_amount: totalAmount,
+            payment_method: paymentMethod,
+            paid_amount: customerPaidAmount,
+            balance: saleBalance,
+            status,
+          })
+          .select()
+          .single();
+
+        if (saleError) throw saleError;
+
+        // Update credit customer outstanding balance atomically (delta, not a stale read-then-write)
+        if (paymentMethod === "Credit" && selectedCustomer) {
+          const { error: updateError } = await supabase.rpc("adjust_credit_balance", {
+            p_customer_id: selectedCustomer.id,
+            p_delta: totalAmount - customerPaidAmount,
+          });
+          if (updateError) throw updateError;
+        }
+
+        const saleItems = cart.map((item) => ({
+          sale_id: sale.id,
+          product_id: item.product_id,
+          product_name: item.name,
+          quantity: item.quantity,
+          unit_price: item.price,
+          total_price: item.price * item.quantity,
+          sold_unit: item.sold_unit,
+        }));
+
+        const { error: itemsError } = await supabase.from("sale_items").insert(saleItems);
+        if (itemsError) throw itemsError;
+
+        // Aggregate quantity per real product_id first, in case the same product
+        // was added as both a "unit" line and a "case" line — avoids double-deducting stock.
+        const stockDeductions = new Map<string, number>();
+        for (const item of cart) {
+          if (!item.product_id || item.product_id.startsWith("temp_")) continue;
+          stockDeductions.set(item.product_id, (stockDeductions.get(item.product_id) || 0) + item.quantity);
+        }
+
+        for (const [productId, qty] of stockDeductions.entries()) {
+          const { error: stockError } = await supabase.rpc("decrement_stock", {
+            p_product_id: productId,
+            p_qty: qty,
+          });
+          if (stockError) throw stockError;
+        }
+
+        // Return data for receipt printing
+        return {
+          sale,
+          offline: false as const,
+          receiptData: {
+            invoiceNumber: invoiceNumber.data,
+            items: [...cart],
+            subtotal: saleSubtotal,
+            discountAmount: saleDiscountAmount,
+            total: totalAmount,
+            paidAmount: customerPaidAmount,
+            balance: saleBalance,
+            paymentMethod,
+            customerName: selectedCustomer?.name,
+          }
+        };
+      } catch (err) {
+        // Connection dropped mid-checkout - don't block billing, queue it for later sync.
+        if (isNetworkError(err)) {
+          return queueOffline();
+        }
+        throw err;
+      }
     },
     onSuccess: (data) => {
       // Store last receipt data for reprinting
       setLastReceiptData(data.receiptData);
-      
-      // Auto print receipt
+
+      // Auto print receipt (works offline too - direct thermal print and browser print both do)
       printReceipt(data.receiptData);
 
-      const message = paymentMethod === "Credit" 
-        ? "Credit sale recorded successfully!" 
-        : "Transaction recorded successfully!";
-      
-      toast({
-        title: "Sale Completed",
-        description: message,
-      });
+      if (data.offline) {
+        toast({
+          title: "Saved Offline",
+          description: "No internet - sale queued and will sync automatically once you're back online.",
+        });
+      } else {
+        const message = paymentMethod === "Credit"
+          ? "Credit sale recorded successfully!"
+          : "Transaction recorded successfully!";
+
+        toast({
+          title: "Sale Completed",
+          description: message,
+        });
+      }
 
       // Clear cart and reset form
       setCart([]);
@@ -1536,6 +1709,24 @@ export default function POSTerminal() {
           </Popover>
         </div>
       </div>
+
+      {/* Offline / sync status */}
+      {(!isOnline || pendingSyncCount > 0) && (
+        <div className={`flex items-center justify-between gap-3 p-3 rounded-lg border text-sm ${!isOnline ? "bg-destructive/10 border-destructive/30 text-destructive" : "bg-amber-500/10 border-amber-500/30 text-amber-600"}`}>
+          <span className="flex items-center gap-2">
+            {!isOnline ? <WifiOff className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
+            {!isOnline
+              ? "Offline — billing still works, sales will sync automatically once you're back online."
+              : `${pendingSyncCount} offline sale${pendingSyncCount === 1 ? "" : "s"} waiting to sync.`}
+            {pendingSyncCount > 0 && !isOnline && ` (${pendingSyncCount} queued)`}
+          </span>
+          {isOnline && pendingSyncCount > 0 && (
+            <Button size="sm" variant="outline" onClick={runSync} disabled={isSyncing}>
+              {isSyncing ? "Syncing..." : "Sync Now"}
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Credit Customer Search */}
       <Card className="glass-card border-border/50">
