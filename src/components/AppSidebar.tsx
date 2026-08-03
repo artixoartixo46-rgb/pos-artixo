@@ -44,7 +44,7 @@ export function AppSidebar() {
         </div>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-muted-foreground/70 text-[10px] uppercase tracking-widest px-4 mb-1">
+          <SidebarGroupLabel className="text-muted-foreground/70 text-[10px] uppercase tracking-widest px-2 mb-1">
             Main Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -56,7 +56,7 @@ export function AppSidebar() {
                       to={item.url}
                       end={item.url === "/"}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                        `flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all duration-300 ${
                           isActive
                             ? "glass-card bg-primary/15 text-primary border-primary/25 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.3)]"
                             : "text-sidebar-foreground/80 hover:bg-muted/30 hover:text-foreground"

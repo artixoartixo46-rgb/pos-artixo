@@ -9,73 +9,73 @@
 
 @layer base {
   :root {
-    /* Liquid Glass – Soft frosted light tones on deep backdrop */
-    --background: 230 25% 8%;
-    --foreground: 220 20% 95%;
+    /* Liquid Glass – Frosted white glass on a soft light backdrop */
+    --background: 240 25% 98%;
+    --foreground: 230 25% 15%;
 
-    --card: 230 20% 14%;
-    --card-foreground: 220 20% 95%;
+    --card: 0 0% 100%;
+    --card-foreground: 230 25% 15%;
 
-    --popover: 230 25% 12%;
-    --popover-foreground: 220 20% 95%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 25% 15%;
 
-    --primary: 260 65% 65%;
+    --primary: 260 60% 55%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 175 70% 50%;
+    --secondary: 175 65% 38%;
     --secondary-foreground: 0 0% 100%;
 
-    --muted: 230 15% 20%;
-    --muted-foreground: 220 15% 60%;
+    --muted: 230 20% 94%;
+    --muted-foreground: 230 12% 42%;
 
-    --accent: 300 50% 60%;
+    --accent: 300 45% 50%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 75% 55%;
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 230 20% 22%;
-    --input: 230 20% 18%;
-    --ring: 260 65% 65%;
+    --border: 230 20% 88%;
+    --input: 230 20% 90%;
+    --ring: 260 60% 55%;
 
     --radius: 1rem;
 
     /* Chart colors */
-    --chart-1: 260 65% 65%;
-    --chart-2: 175 70% 50%;
-    --chart-3: 300 50% 60%;
-    --chart-4: 40 90% 60%;
-    --chart-5: 195 80% 55%;
+    --chart-1: 260 60% 55%;
+    --chart-2: 175 65% 38%;
+    --chart-3: 300 45% 50%;
+    --chart-4: 40 85% 50%;
+    --chart-5: 195 75% 45%;
 
     /* Liquid Glass tokens */
     --glass-blur: 24px;
-    --glass-bg: 230 30% 60% / 0.08;
-    --glass-bg-hover: 230 30% 70% / 0.14;
-    --glass-border: 230 40% 80% / 0.15;
-    --glass-border-hover: 230 40% 85% / 0.25;
-    --glass-shine: linear-gradient(135deg, hsla(0,0%,100%,0.12) 0%, hsla(0,0%,100%,0) 50%, hsla(260,60%,80%,0.06) 100%);
-    --glass-shadow: 0 8px 40px -8px hsla(260, 50%, 20%, 0.45);
-    --glass-shadow-hover: 0 16px 56px -12px hsla(260, 50%, 30%, 0.55);
-    --glass-inset: inset 0 1px 0 0 hsla(0,0%,100%,0.08);
+    --glass-bg: 0 0% 100% / 0.55;
+    --glass-bg-hover: 0 0% 100% / 0.72;
+    --glass-border: 230 30% 80% / 0.4;
+    --glass-border-hover: 230 30% 65% / 0.5;
+    --glass-shine: linear-gradient(135deg, hsla(0,0%,100%,0.55) 0%, hsla(0,0%,100%,0) 50%, hsla(260,60%,90%,0.15) 100%);
+    --glass-shadow: 0 8px 30px -10px hsla(230, 40%, 55%, 0.18);
+    --glass-shadow-hover: 0 16px 44px -12px hsla(230, 40%, 50%, 0.25);
+    --glass-inset: inset 0 1px 0 0 hsla(0,0%,100%,0.7);
 
     /* Iridescent gradient for hero elements */
-    --iridescent: linear-gradient(135deg, hsl(260 65% 65%), hsl(300 50% 60%), hsl(175 70% 50%));
+    --iridescent: linear-gradient(135deg, hsl(260 60% 55%), hsl(300 45% 50%), hsl(175 65% 38%));
 
     /* Sidebar glass */
-    --sidebar-background: 230 25% 10% / 0.85;
-    --sidebar-foreground: 220 20% 92%;
-    --sidebar-primary: 260 65% 65%;
+    --sidebar-background: 0 0% 100% / 0.85;
+    --sidebar-foreground: 230 25% 20%;
+    --sidebar-primary: 260 60% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 230 20% 22% / 0.6;
-    --sidebar-accent-foreground: 220 20% 95%;
-    --sidebar-border: 230 40% 80% / 0.1;
-    --sidebar-ring: 260 65% 65%;
+    --sidebar-accent: 230 20% 92% / 0.7;
+    --sidebar-accent-foreground: 230 25% 15%;
+    --sidebar-border: 230 30% 85% / 0.5;
+    --sidebar-ring: 260 60% 55%;
 
     /* Neon accents (legacy compat) */
-    --neon-primary: 175 70% 50%;
-    --neon-accent: 260 65% 65%;
-    --neon-highlight: 175 80% 60%;
-    --neon-glow: 175 70% 50% / 0.5;
+    --neon-primary: 175 65% 38%;
+    --neon-accent: 260 60% 55%;
+    --neon-highlight: 175 75% 42%;
+    --neon-glow: 175 65% 38% / 0.4;
   }
 }
 
@@ -87,10 +87,10 @@
   body {
     @apply bg-background text-foreground min-h-screen;
     background:
-      radial-gradient(ellipse 80% 60% at 20% 10%, hsla(260, 60%, 35%, 0.2) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 50% at 80% 80%, hsla(175, 60%, 30%, 0.15) 0%, transparent 60%),
-      radial-gradient(ellipse 50% 40% at 50% 50%, hsla(300, 40%, 25%, 0.1) 0%, transparent 60%),
-      hsl(230, 25%, 8%);
+      radial-gradient(ellipse 80% 60% at 20% 10%, hsla(260, 70%, 85%, 0.35) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 80%, hsla(175, 60%, 82%, 0.3) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 40% at 50% 50%, hsla(300, 55%, 88%, 0.2) 0%, transparent 60%),
+      hsl(240, 25%, 98%);
   }
 }
 
@@ -108,7 +108,7 @@
 
   /* Glass card – slightly more opaque */
   .glass-card {
-    background: hsla(230, 22%, 16%, 0.92);
+    background: hsla(0, 0%, 100%, 0.78);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border: 1px solid hsla(var(--glass-border));
@@ -143,7 +143,7 @@
 
   /* Glass input field */
   .glass-input {
-    background: hsla(230, 25%, 40%, 0.1);
+    background: hsla(0, 0%, 100%, 0.6);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid hsla(var(--glass-border));
@@ -151,14 +151,14 @@
   }
 
   .glass-input:focus {
-    background: hsla(230, 25%, 45%, 0.15);
+    background: hsla(0, 0%, 100%, 0.85);
     border-color: hsl(var(--primary));
-    box-shadow: 0 0 0 2px hsla(260, 65%, 65%, 0.2), var(--glass-inset);
+    box-shadow: 0 0 0 2px hsla(260, 60%, 55%, 0.15), var(--glass-inset);
   }
 
   /* Glass button base */
   .glass-button {
-    background: hsla(230, 30%, 55%, 0.12);
+    background: hsla(0, 0%, 100%, 0.5);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid hsla(var(--glass-border));
@@ -167,10 +167,10 @@
   }
 
   .glass-button:hover {
-    background: hsla(230, 30%, 60%, 0.2);
+    background: hsla(0, 0%, 100%, 0.75);
     border-color: hsla(var(--glass-border-hover));
     transform: translateY(-1px);
-    box-shadow: 0 4px 16px -4px hsla(260, 50%, 30%, 0.4), var(--glass-inset);
+    box-shadow: 0 4px 16px -4px hsla(230, 30%, 50%, 0.18), var(--glass-inset);
   }
 
   /* Pill shape for buttons */
