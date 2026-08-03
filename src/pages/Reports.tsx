@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   BarChart3,
   TrendingUp,
+  TrendingDown,
+  Minus,
+  Sparkles,
   Package,
   Boxes,
   AlertTriangle,
@@ -16,7 +19,7 @@ import {
   ClipboardList,
   Phone,
 } from "lucide-react";
-import { computeReorderSuggestions, groupSuggestionsByVendor } from "@/lib/reorderSuggestions";
+import { computeReorderSuggestions, groupSuggestionsByVendor, type ReorderTrend } from "@/lib/reorderSuggestions";
 import {
   BarChart,
   Bar,
@@ -57,6 +60,38 @@ function getPeriodStart(period: Period): string | null {
     start.setDate(start.getDate() - 30);
   }
   return start.toISOString();
+}
+
+function TrendBadge({ trend, trendPct }: { trend: ReorderTrend; trendPct: number | null }) {
+  if (trend === "up") {
+    return (
+      <Badge variant="destructive" className="text-[10px] gap-1">
+        <TrendingUp className="h-3 w-3" /> {trendPct !== null ? `+${trendPct.toFixed(0)}%` : "Faster"}
+      </Badge>
+    );
+  }
+  if (trend === "down") {
+    return (
+      <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+        <TrendingDown className="h-3 w-3" /> {trendPct !== null ? `${trendPct.toFixed(0)}%` : "Slower"}
+      </Badge>
+    );
+  }
+  if (trend === "new") {
+    return (
+      <Badge variant="secondary" className="text-[10px] gap-1">
+        <Sparkles className="h-3 w-3" /> New demand
+      </Badge>
+    );
+  }
+  if (trend === "flat") {
+    return (
+      <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+        <Minus className="h-3 w-3" /> Steady
+      </Badge>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">—</span>;
 }
 
 export default function Reports() {
@@ -292,6 +327,7 @@ export default function Reports() {
                         <TableHead>Product</TableHead>
                         <TableHead className="text-right">Stock Left</TableHead>
                         <TableHead className="text-right">Days Left</TableHead>
+                        <TableHead className="text-right">Trend (7d vs prior 7d)</TableHead>
                         <TableHead className="text-right">Suggested Order</TableHead>
                         <TableHead className="text-right">Est. Cost</TableHead>
                       </TableRow>
@@ -313,6 +349,9 @@ export default function Reports() {
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">
                             {item.daysOfStockLeft === null ? "—" : `${item.daysOfStockLeft.toFixed(1)}d`}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <TrendBadge trend={item.trend} trendPct={item.trendPct} />
                           </TableCell>
                           <TableCell className="text-right font-semibold text-primary">
                             {item.suggestedQty} {item.unitLabel}

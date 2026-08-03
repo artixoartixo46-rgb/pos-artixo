@@ -1,6 +1,10 @@
 // Auto-reorder suggestions: uses recent sales velocity + vendor purchase history
-// to suggest what to reorder, how much, and from which vendor.
+// to suggest what to reorder, how much, and from which vendor - plus a trend read
+// (is this item selling faster or slower than it was a week ago) so the suggestion
+// isn't just a flat 30-day average.
 import { supabase } from "@/integrations/supabase/client";
+
+export type ReorderTrend = "up" | "down" | "flat" | "new" | "unknown";
 
 export interface ReorderSuggestion {
   productId: string;
@@ -10,7 +14,11 @@ export interface ReorderSuggestion {
   minStockLevel: number;
   unitLabel: string;
   caseSize: number | null;
-  avgDailyQty: number;
+  avgDailyQty: number; // the velocity actually used to size the suggestion (recent-weighted)
+  recentDailyQty: number; // avg/day over the last 7 days
+  priorDailyQty: number; // avg/day over the 7 days before that
+  trend: ReorderTrend;
+  trendPct: number | null; // % change of recent vs prior week (null if not computable)
   daysOfStockLeft: number | null; // null = no recent sales data to estimate from
   suggestedQty: number;
   estimatedCost: number | null;
@@ -21,34 +29,60 @@ export interface ReorderSuggestion {
 }
 
 const VELOCITY_LOOKBACK_DAYS = 30;
+const RECENT_WINDOW_DAYS = 7;
+const PRIOR_WINDOW_DAYS = 7; // the 7 days immediately before the recent window
 const TARGET_DAYS_OF_STOCK = 14;
 const LOW_DAYS_THRESHOLD = 7;
+const TREND_THRESHOLD_PCT = 15; // below this magnitude of change, call it "flat"
 
 export async function computeReorderSuggestions(): Promise<ReorderSuggestion[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - VELOCITY_LOOKBACK_DAYS);
+  const now = new Date();
+  const since30 = new Date(now);
+  since30.setDate(since30.getDate() - VELOCITY_LOOKBACK_DAYS);
+  const recentStart = new Date(now);
+  recentStart.setDate(recentStart.getDate() - RECENT_WINDOW_DAYS);
+  const priorStart = new Date(now);
+  priorStart.setDate(priorStart.getDate() - (RECENT_WINDOW_DAYS + PRIOR_WINDOW_DAYS));
 
   const [{ data: products, error: pErr }, { data: sales, error: sErr }] = await Promise.all([
     supabase
       .from("products")
       .select("id, name, category, stock_quantity, min_stock_level, unit_label, case_size, cost"),
-    supabase.from("sales").select("id").gte("sale_date", since.toISOString()),
+    supabase.from("sales").select("id, sale_date").gte("sale_date", since30.toISOString()),
   ]);
   if (pErr) throw pErr;
   if (sErr) throw sErr;
 
+  const saleDateById = new Map<string, string>();
+  for (const s of sales || []) saleDateById.set(s.id, s.sale_date);
   const saleIds = (sales || []).map((s: any) => s.id);
+
   let saleItems: any[] = [];
   if (saleIds.length > 0) {
-    const { data, error } = await supabase.from("sale_items").select("product_id, quantity").in("sale_id", saleIds);
+    const { data, error } = await supabase.from("sale_items").select("sale_id, product_id, quantity").in("sale_id", saleIds);
     if (error) throw error;
     saleItems = data || [];
   }
 
-  const qtyByProduct = new Map<string, number>();
+  // Bucket quantity sold per product into: total (30d), recent (last 7d), prior (7d before that)
+  const totalQtyByProduct = new Map<string, number>();
+  const recentQtyByProduct = new Map<string, number>();
+  const priorQtyByProduct = new Map<string, number>();
+
   for (const item of saleItems) {
     if (!item.product_id) continue;
-    qtyByProduct.set(item.product_id, (qtyByProduct.get(item.product_id) || 0) + Number(item.quantity || 0));
+    const saleDateStr = saleDateById.get(item.sale_id);
+    if (!saleDateStr) continue;
+    const saleDate = new Date(saleDateStr);
+    const qty = Number(item.quantity || 0);
+
+    totalQtyByProduct.set(item.product_id, (totalQtyByProduct.get(item.product_id) || 0) + qty);
+
+    if (saleDate >= recentStart) {
+      recentQtyByProduct.set(item.product_id, (recentQtyByProduct.get(item.product_id) || 0) + qty);
+    } else if (saleDate >= priorStart) {
+      priorQtyByProduct.set(item.product_id, (priorQtyByProduct.get(item.product_id) || 0) + qty);
+    }
   }
 
   // Most recent vendor that supplied each product, from receiving history.
@@ -77,17 +111,27 @@ export async function computeReorderSuggestions(): Promise<ReorderSuggestion[]> 
   for (const p of products || []) {
     const stock = Number(p.stock_quantity ?? 0);
     const minStock = Number(p.min_stock_level ?? 10);
-    const qtySold = qtyByProduct.get(p.id) || 0;
-    const avgDailyQty = qtySold / VELOCITY_LOOKBACK_DAYS;
-    const daysLeft = avgDailyQty > 0 ? stock / avgDailyQty : null;
+
+    const totalQty = totalQtyByProduct.get(p.id) || 0;
+    const recentQty = recentQtyByProduct.get(p.id) || 0;
+    const priorQty = priorQtyByProduct.get(p.id) || 0;
+
+    const avgDailyQty30 = totalQty / VELOCITY_LOOKBACK_DAYS;
+    const recentDailyQty = recentQty / RECENT_WINDOW_DAYS;
+    const priorDailyQty = priorQty / PRIOR_WINDOW_DAYS;
+
+    // Size the suggestion off the most recent week when there's data for it (more responsive
+    // to what's actually happening right now); fall back to the flatter 30-day average otherwise.
+    const effectiveAvgDailyQty = recentDailyQty > 0 ? recentDailyQty : avgDailyQty30;
+    const daysLeft = effectiveAvgDailyQty > 0 ? stock / effectiveAvgDailyQty : null;
 
     const belowMin = stock <= minStock;
     const runningLow = daysLeft !== null && daysLeft <= LOW_DAYS_THRESHOLD;
     if (!belowMin && !runningLow) continue;
 
     let suggestedQty: number;
-    if (avgDailyQty > 0) {
-      suggestedQty = Math.max(0, Math.ceil(avgDailyQty * TARGET_DAYS_OF_STOCK) - stock);
+    if (effectiveAvgDailyQty > 0) {
+      suggestedQty = Math.max(0, Math.ceil(effectiveAvgDailyQty * TARGET_DAYS_OF_STOCK) - stock);
     } else {
       // No recent sales data to size a suggestion from - just top back up above the min level.
       suggestedQty = Math.max(0, Math.ceil(minStock * 2 - stock));
@@ -97,6 +141,18 @@ export async function computeReorderSuggestions(): Promise<ReorderSuggestion[]> 
     const caseSize = p.case_size ? Number(p.case_size) : null;
     if (caseSize && caseSize > 1) {
       suggestedQty = Math.ceil(suggestedQty / caseSize) * caseSize;
+    }
+
+    // Trend: is this week's selling pace up, down, or flat vs the week before?
+    let trend: ReorderTrend = "unknown";
+    let trendPct: number | null = null;
+    if (priorDailyQty > 0) {
+      trendPct = ((recentDailyQty - priorDailyQty) / priorDailyQty) * 100;
+      if (trendPct > TREND_THRESHOLD_PCT) trend = "up";
+      else if (trendPct < -TREND_THRESHOLD_PCT) trend = "down";
+      else trend = "flat";
+    } else if (recentDailyQty > 0) {
+      trend = "new"; // wasn't selling in the prior week, is selling now
     }
 
     const vendorId = vendorIdByProduct.get(p.id) || null;
@@ -110,7 +166,11 @@ export async function computeReorderSuggestions(): Promise<ReorderSuggestion[]> 
       minStockLevel: minStock,
       unitLabel: p.unit_label || "pcs",
       caseSize,
-      avgDailyQty,
+      avgDailyQty: effectiveAvgDailyQty,
+      recentDailyQty,
+      priorDailyQty,
+      trend,
+      trendPct,
       daysOfStockLeft: daysLeft,
       suggestedQty,
       estimatedCost: p.cost != null ? Number(p.cost) * suggestedQty : null,

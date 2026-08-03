@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, Package, ShoppingCart, TrendingUp, AlertTriangle, ClipboardList, ArrowRight } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingUp, TrendingDown, AlertTriangle, ClipboardList, ArrowRight, Sparkles } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
@@ -429,6 +429,21 @@ export default function Dashboard() {
                       >
                         {item.reason === "out_of_stock" ? "Out of stock" : item.reason === "below_min_stock" ? "Below min" : "Running low"}
                       </Badge>
+                      {item.trend === "up" && (
+                        <Badge variant="destructive" className="ml-1 text-[10px] gap-1">
+                          <TrendingUp className="h-3 w-3" /> {item.trendPct !== null ? `+${item.trendPct.toFixed(0)}%` : "Faster"}
+                        </Badge>
+                      )}
+                      {item.trend === "new" && (
+                        <Badge variant="secondary" className="ml-1 text-[10px] gap-1">
+                          <Sparkles className="h-3 w-3" /> New demand
+                        </Badge>
+                      )}
+                      {item.trend === "down" && (
+                        <Badge variant="outline" className="ml-1 text-[10px] gap-1 text-muted-foreground">
+                          <TrendingDown className="h-3 w-3" /> {item.trendPct !== null ? `${item.trendPct.toFixed(0)}%` : "Slower"}
+                        </Badge>
+                      )}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {item.vendorName ? `Order from ${item.vendorName}` : "No vendor on record"}
