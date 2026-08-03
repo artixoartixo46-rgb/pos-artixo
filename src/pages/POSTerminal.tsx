@@ -1428,6 +1428,8 @@ export default function POSTerminal() {
                   </div>
                 )}
               </CardTitle>
+            </CardHeader>
+            <CardContent>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
@@ -1447,8 +1449,8 @@ export default function POSTerminal() {
                       size="icon"
                       onClick={toggleListening}
                       className={`absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 rounded-full transition-all ${
-                        isListening 
-                          ? 'bg-primary text-primary-foreground mic-active' 
+                        isListening
+                          ? 'bg-primary text-primary-foreground mic-active'
                           : 'hover:bg-muted'
                       }`}
                       title={isListening ? "Stop listening" : "Voice search (en-US / தமிழ்)"}
@@ -1462,7 +1464,7 @@ export default function POSTerminal() {
                       )}
                     </Button>
                   )}
-                  
+
                   {/* Voice preview tooltip */}
                   {showVoicePreview && voiceTranscript && (
                     <div className="absolute left-0 right-0 top-full mt-1 z-50 glass-card border-border/50 p-2 rounded-md animate-in fade-in slide-in-from-top-1">
@@ -1479,10 +1481,10 @@ export default function POSTerminal() {
                   Scan QR
                 </Button>
               </div>
-              
+
               {/* Voice commands help */}
               {isListening && (
-                <div className="text-xs text-muted-foreground mt-2 p-2 glass-card rounded-md border-border/30">
+                <div className="text-xs text-muted-foreground mt-3 p-2 glass-card rounded-md border-border/30">
                   <p className="font-medium text-primary mb-1">Voice Commands:</p>
                   <ul className="space-y-0.5">
                     <li>"<span className="text-foreground">[product name]</span>" - Search & auto-add</li>
@@ -1492,9 +1494,8 @@ export default function POSTerminal() {
                   </ul>
                 </div>
               )}
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
+
+              <div className="grid grid-cols-2 gap-3 max-h-[600px] overflow-y-auto mt-4">
                 {products?.map((product) => (
                   <button
                     key={product.id}
