@@ -116,6 +116,28 @@ export default function POSTerminal() {
   const queryClient = useQueryClient();
   const receiptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Short beep for scan feedback (barcode gun users bill fast without watching the screen)
+  const playScanBeep = useCallback((success: boolean) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = success ? 880 : 220;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (success ? 0.12 : 0.25));
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + (success ? 0.12 : 0.25));
+    } catch {
+      // Audio not available (e.g. no user gesture yet) - fail silently
+    }
+  }, []);
 
   const { data: products } = useQuery({
     queryKey: ["products", searchTerm],
@@ -502,13 +524,30 @@ export default function POSTerminal() {
     }
   };
 
-  // Auto-add to cart when QR code is scanned
+  // Add a scanned product to the cart, refocus the search bar, and give audio/visual feedback
+  // so a cashier can keep firing a USB/Bluetooth barcode gun without touching the mouse/keyboard.
+  const addScannedProduct = (product: any, rawCode: string) => {
+    addToCart(product);
+    setLastScannedQR(rawCode);
+    playScanBeep(true);
+    toast({
+      title: "Item Scanned!",
+      description: `${product.name} added to cart`,
+    });
+    setSearchTerm("");
+    setTimeout(() => setLastScannedQR(""), 300);
+    // Barcode guns type into whatever has focus - keep focus on the search bar so the next scan works immediately.
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  // Auto-add to cart when a code is scanned - via camera QR, or a USB/Bluetooth barcode gun
+  // (which behaves like a keyboard: it types the code into the focused field, then sends Enter).
   const handleQRScan = async (qrContent: string) => {
     if (!qrContent || qrContent === lastScannedQR) return;
-    
+
     let qrNumber: string | null = null;
 
-    // Check if content is JSON
+    // Check if content is JSON (camera-scanned QR labels from this app)
     if (isValidJSON(qrContent)) {
       try {
         const parsed = JSON.parse(qrContent);
@@ -528,7 +567,22 @@ export default function POSTerminal() {
       }
     }
 
-    // If not extracted from JSON, check if it's a plain QR code number
+    // Real product barcodes (from a USB/Bluetooth scanner reading packaging, EAN/UPC/Code128 etc.)
+    // live in the `barcode` column - try an exact match first since that's the common case.
+    if (!qrNumber && qrContent.trim().length >= 4) {
+      const { data: byBarcode, error: barcodeError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("barcode", qrContent.trim())
+        .limit(1);
+
+      if (!barcodeError && byBarcode && byBarcode.length > 0) {
+        addScannedProduct(byBarcode[0], qrContent);
+        return;
+      }
+    }
+
+    // Fall back to this app's internal QR code number (from QR Code Print labels)
     if (!qrNumber) {
       const isQRNumber = /^\d+$/.test(qrContent) && parseInt(qrContent) >= 1001;
       if (isQRNumber) {
@@ -542,37 +596,38 @@ export default function POSTerminal() {
         .select("*")
         .eq("qr_code_number", qrNumber)
         .limit(1);
-      
+
       if (!error && matchedProducts && matchedProducts.length > 0) {
-        const product = matchedProducts[0];
-        addToCart(product);
-        setLastScannedQR(qrContent);
-        toast({
-          title: "Item Added via QR Scan!",
-          description: `${product.name} added to cart`,
-        });
-        setSearchTerm("");
-        setTimeout(() => setLastScannedQR(""), 300);
+        addScannedProduct(matchedProducts[0], qrContent);
       } else {
+        playScanBeep(false);
         toast({
-          title: "Invalid QR Code",
-          description: `Product not found for QR: ${qrNumber}`,
+          title: "Unknown Code",
+          description: `No product found for: ${qrNumber}`,
           variant: "destructive",
         });
       }
     }
   };
 
-  // Watch for QR scan input
+  // Watch for scanner/typed input in the search bar (debounced so normal typing doesn't spam lookups)
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    
-    // Debounce QR scan detection
-    const debounceTimer = setTimeout(() => {
+
+    if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
+    scanDebounceRef.current = setTimeout(() => {
       handleQRScan(value);
-    }, 100);
-    
-    return () => clearTimeout(debounceTimer);
+    }, 150);
+  };
+
+  // Barcode guns send an Enter keystroke right after the code - act on it immediately
+  // instead of waiting for the debounce, so billing feels instant.
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
+      handleQRScan(searchTerm);
+    }
   };
 
   const { data: creditCustomers } = useQuery({
@@ -1542,9 +1597,10 @@ export default function POSTerminal() {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
                   <Input
                     ref={searchInputRef}
-                    placeholder={isListening ? "Listening..." : "Search or speak product name..."}
+                    placeholder={isListening ? "Listening..." : "Search, scan barcode, or speak product name..."}
                     value={isListening && voiceTranscript ? voiceTranscript : searchTerm}
                     onChange={(e) => handleSearchChange(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
                     className={`pl-10 pr-12 glass border-border/50 transition-all ${isListening ? 'voice-listening border-primary' : ''}`}
                     autoFocus
                   />
@@ -1588,6 +1644,9 @@ export default function POSTerminal() {
                   Scan QR
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                USB/Bluetooth barcode scanner? Just plug it in (or pair it) and scan — it types straight into the search bar above and adds the item automatically.
+              </p>
 
               {/* Voice commands help */}
               {isListening && (
