@@ -33,7 +33,7 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="glass border-r border-border/20">
-      <SidebarContent className="relative overflow-hidden p-2">
+      <SidebarContent className="relative overflow-x-hidden overflow-y-auto scroll-glass p-2">
         {/* Ambient floating glass blobs for a "living" background */}
         <div
           aria-hidden

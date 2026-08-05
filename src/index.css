@@ -97,6 +97,25 @@
 /* ====== Liquid Glass Utility Classes ====== */
 @layer utilities {
 
+  /* Thin glassy scrollbar for internal panels like the sidebar */
+  .scroll-glass {
+    scrollbar-width: thin;
+    scrollbar-color: hsla(var(--primary) / 0.35) transparent;
+  }
+  .scroll-glass::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scroll-glass::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-glass::-webkit-scrollbar-thumb {
+    background: hsla(var(--primary) / 0.3);
+    border-radius: 999px;
+  }
+  .scroll-glass::-webkit-scrollbar-thumb:hover {
+    background: hsla(var(--primary) / 0.5);
+  }
+
   /* Primary glass surface */
   .glass {
     background: hsla(var(--glass-bg));
