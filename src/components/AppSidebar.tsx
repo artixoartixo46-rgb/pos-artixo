@@ -63,19 +63,19 @@ export function AppSidebar() {
             Main Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu className="gap-1.5">
+            <SidebarMenu className="gap-0.5">
               {items.map((item, index) => (
                 <SidebarMenuItem
                   key={item.title}
                   className="animate-in fade-in slide-in-from-left-4 duration-500 [animation-fill-mode:backwards]"
                   style={{ animationDelay: `${120 + index * 45}ms` }}
                 >
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild className="h-auto">
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
                       className={({ isActive }) =>
-                        `group relative flex items-center gap-3 px-3 py-2.5 rounded-full overflow-hidden transition-all duration-300 ease-out ${
+                        `group relative flex items-center gap-3.5 px-4 py-3.5 rounded-full overflow-hidden transition-all duration-300 ease-out ${
                           isActive
                             ? "bg-primary/15 text-primary shadow-[0_4px_20px_-4px_hsl(var(--primary)/0.35)] animate-nav-pop"
                             : "bg-primary/[0.06] text-sidebar-foreground/75 hover:bg-primary/15 hover:text-primary hover:translate-x-1 hover:shadow-[0_4px_16px_-6px_hsl(var(--primary)/0.3)] active:scale-95"
@@ -88,15 +88,15 @@ export function AppSidebar() {
                           <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/50 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full" />
 
                           <span className="relative z-10 grid place-items-center transition-transform duration-300 ease-out group-hover:scale-125 group-hover:-rotate-6">
-                            <item.icon className="h-4 w-4 shrink-0" />
+                            <item.icon className="h-5 w-5 shrink-0" />
                           </span>
 
                           {open && (
-                            <span className="relative z-10 text-sm font-medium truncate">{item.title}</span>
+                            <span className="relative z-10 text-base font-medium truncate">{item.title}</span>
                           )}
 
                           {isActive && open && (
-                            <span className="relative z-10 ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-dot-pulse" />
+                            <span className="relative z-10 ml-auto h-2 w-2 shrink-0 rounded-full bg-primary animate-dot-pulse" />
                           )}
                         </>
                       )}
