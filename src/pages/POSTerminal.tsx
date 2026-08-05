@@ -1954,7 +1954,7 @@ export default function POSTerminal() {
           </Card>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card className="glass-card border-border/50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -1962,8 +1962,8 @@ export default function POSTerminal() {
                 Current Sale
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3 max-h-[400px] overflow-y-auto mb-4">
+            <CardContent className="lg:max-h-[calc(100vh-12rem)] overflow-y-auto">
+              <div className="space-y-3 mb-4">
                 {cart.map((item) => (
                   <div
                     key={item.line_key}
