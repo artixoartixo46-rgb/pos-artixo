@@ -1,12 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch } from "lucide-react";
+import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
+import {
+  QR_LABEL_TEMPLATES,
+  getFavoriteTemplateId,
+  setFavoriteTemplateId,
+  getTemplateById,
+  LABEL_W,
+  LABEL_H,
+  COLS,
+  PAGE_W,
+  type QRTemplateItem,
+} from "@/lib/qrLabelTemplates";
 
 type PrintQueueItem = {
   id: string;
@@ -17,17 +28,30 @@ type PrintQueueItem = {
   qrDataUrl: string;
 };
 
-// Universal thermal sticker roll: 2 labels side-by-side per page
-const LABEL_W = 50; // mm per label
-const LABEL_H = 25; // mm per label
-const COLS = 2; // labels per row
-const PAGE_W = LABEL_W * COLS; // 100mm wide page
-const QR_SIZE_MM = 20;
-
 export default function BarcodePrint() {
   const [searchQuery, setSearchQuery] = useState("");
   const [printQueue, setPrintQueue] = useState<PrintQueueItem[]>([]);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(getFavoriteTemplateId());
+  const [sampleQrUrl, setSampleQrUrl] = useState("");
+
+  // Generate a sample QR once, used for template preview cards when the queue is empty
+  useEffect(() => {
+    QRCode.toDataURL(
+      JSON.stringify({ type: "item", item_id: "000001", name: "Sample Product", price: 250, currency: "LKR" }),
+      { width: 400, margin: 1, errorCorrectionLevel: "H" }
+    ).then(setSampleQrUrl);
+  }, []);
+
+  const chooseTemplate = (id: string) => {
+    setSelectedTemplateId(id);
+    setFavoriteTemplateId(id);
+    const tpl = getTemplateById(id);
+    toast.success(`"${tpl.name}" set as your favorite print template`);
+  };
+
+  const allTemplateCss = QR_LABEL_TEMPLATES.map((t) => t.css).join("\n");
+  const baseLabelCss = `.qr-label-box { width: ${LABEL_W}mm; height: ${LABEL_H}mm; box-sizing: border-box; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #fff; }`;
 
   const { data: products } = useQuery({
     queryKey: ["products-label-search", searchQuery],
@@ -125,6 +149,8 @@ export default function BarcodePrint() {
       return;
     }
 
+    const template = getTemplateById(selectedTemplateId);
+
     // Flatten queue into individual labels (doubled for front+back)
     const allLabels: { item: PrintQueueItem }[] = [];
     for (const item of printQueue) {
@@ -135,24 +161,19 @@ export default function BarcodePrint() {
     }
 
     const labelsHtml = allLabels.map(({ item }) => {
-      const displayName = fitName(item.name, 16);
-      const priceText = `Rs.${item.price.toFixed(2)}`;
-      return `<div class="label">
-          <div class="qr-section">
-            <img src="${item.qrDataUrl}" class="qr-img" />
-          </div>
-          <div class="info-section">
-            <div class="product-name">${displayName}</div>
-            <div class="product-price">${priceText}</div>
-            <div class="qr-number">#${item.qrCodeNumber}</div>
-          </div>
-        </div>`;
+      const templateItem: QRTemplateItem = {
+        name: item.name,
+        price: item.price,
+        qrCodeNumber: item.qrCodeNumber,
+        qrDataUrl: item.qrDataUrl,
+      };
+      return `<div class="qr-label-box tpl-${template.id}">${template.renderLabel(templateItem, fitName)}</div>`;
     }).join("");
 
     const printContent = `<!DOCTYPE html>
 <html>
 <head>
-  <title>QR Sticker Print - ${LABEL_W}x${LABEL_H}mm</title>
+  <title>QR Sticker Print - ${template.name} - ${LABEL_W}x${LABEL_H}mm</title>
   <style>
     @page {
       size: ${PAGE_W}mm ${LABEL_H}mm;
@@ -173,61 +194,17 @@ export default function BarcodePrint() {
       grid-auto-rows: ${LABEL_H}mm;
       gap: 0;
     }
-    .label {
-      width: ${LABEL_W}mm;
-      height: ${LABEL_H}mm;
-      display: flex;
-      align-items: center;
-      padding: 1.5mm 2mm;
-      overflow: hidden;
+    .qr-label-box {
       page-break-inside: avoid;
       break-inside: avoid;
     }
-    .qr-section {
-      flex-shrink: 0;
-      width: ${QR_SIZE_MM}mm;
-      height: ${QR_SIZE_MM}mm;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .qr-img {
-      width: ${QR_SIZE_MM}mm;
-      height: ${QR_SIZE_MM}mm;
-      display: block;
+    .qr-label-box img {
       image-rendering: pixelated;
       image-rendering: -moz-crisp-edges;
       image-rendering: crisp-edges;
     }
-    .info-section {
-      flex: 1;
-      padding-left: 1.5mm;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      overflow: hidden;
-      min-width: 0;
-    }
-    .product-name {
-      font-size: 7pt;
-      font-weight: bold;
-      line-height: 1.15;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      color: #000;
-    }
-    .product-price {
-      font-size: 9pt;
-      font-weight: bold;
-      color: #000;
-      margin-top: 0.5mm;
-    }
-    .qr-number {
-      font-size: 6pt;
-      color: #000;
-      margin-top: 0.3mm;
-    }
+    ${baseLabelCss}
+    ${allTemplateCss}
   </style>
 </head>
 <body>${labelsHtml}</body>
@@ -240,7 +217,7 @@ export default function BarcodePrint() {
       printWindow.onload = () => {
         setTimeout(() => printWindow.print(), 300);
       };
-      toast.success(`Printing ${totalLabels} labels on ${LABEL_W}×${LABEL_H}mm thermal roll (${allLabels.length} stickers, double-sided)`);
+      toast.success(`Printing ${totalLabels} labels using "${template.name}" template on ${LABEL_W}×${LABEL_H}mm thermal roll (${allLabels.length} stickers, double-sided)`);
     }
   };
 
@@ -254,6 +231,62 @@ export default function BarcodePrint() {
           Search a product, add it to the queue, then print onto a {LABEL_W}×{LABEL_H}mm thermal sticker roll.
         </p>
       </div>
+
+      {/* Shared style block for all template previews (picker + live preview) */}
+      <style>{`${baseLabelCss}\n${allTemplateCss}`}</style>
+
+      {/* Template Picker */}
+      <Card className="glass-card border-border/50 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <LayoutTemplate className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Label Design Templates</h2>
+        </div>
+        <p className="text-sm text-muted-foreground -mt-2 mb-4">
+          Pick a design and it becomes your favorite — printing always uses your favorite template.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {QR_LABEL_TEMPLATES.map((template) => {
+            const isSelected = template.id === selectedTemplateId;
+            const previewItem: QRTemplateItem = printQueue[0]
+              ? {
+                  name: printQueue[0].name,
+                  price: printQueue[0].price,
+                  qrCodeNumber: printQueue[0].qrCodeNumber,
+                  qrDataUrl: printQueue[0].qrDataUrl,
+                }
+              : { name: "Sample Product", price: 250, qrCodeNumber: "000001", qrDataUrl: sampleQrUrl };
+            return (
+              <button
+                key={template.id}
+                onClick={() => chooseTemplate(template.id)}
+                className={`relative flex flex-col items-center gap-2 rounded-xl border p-3 text-left transition ${
+                  isSelected
+                    ? "border-primary ring-2 ring-primary bg-primary/5"
+                    : "border-border/30 glass-card glass-hover"
+                }`}
+              >
+                {isSelected && (
+                  <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold px-1.5 py-0.5">
+                    <Star className="h-2.5 w-2.5 fill-current" /> Favorite
+                  </span>
+                )}
+                <div className="rounded-md overflow-hidden border border-border/20 bg-white flex items-center justify-center" style={{ width: "50mm", height: "25mm", maxWidth: "100%" }}>
+                  {previewItem.qrDataUrl ? (
+                    <div
+                      className={`qr-label-box tpl-${template.id}`}
+                      dangerouslySetInnerHTML={{ __html: template.renderLabel(previewItem, fitName) }}
+                    />
+                  ) : null}
+                </div>
+                <div className="text-center">
+                  <p className="text-xs font-semibold">{template.name}</p>
+                  <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">{template.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Search & Add */}
@@ -370,26 +403,33 @@ export default function BarcodePrint() {
                 <span className="font-bold text-primary">Rs. {totalValue.toFixed(2)}</span>
               </div>
 
-              {/* Live sticker preview */}
+              {/* Live sticker preview — actual size, using the favorite template */}
               <div className="mt-4 p-3 rounded-xl border border-border/30 bg-white">
                 <p className="text-xs text-muted-foreground mb-2 text-center">
-                  Live preview · {LABEL_W}×{LABEL_H}mm, 2 side-by-side, double-sided
+                  Live preview · "{getTemplateById(selectedTemplateId).name}" template · actual size · double-sided
                 </p>
-                <div className="mx-auto grid grid-cols-2 gap-0 border border-border/20 rounded-md overflow-hidden" style={{ width: "300px" }}>
-                  {printQueue.slice(0, 6).flatMap((item) => [0, 1].map((side) => (
-                    <div key={`${item.id}-${side}`} className="border border-border/10 flex items-center p-1 bg-white" style={{ height: "38px" }}>
-                      <img src={item.qrDataUrl} alt="" className="w-8 h-8 shrink-0" />
-                      <div className="pl-1 overflow-hidden flex-1">
-                        <div className="text-black font-bold truncate" style={{ fontSize: "7px" }}>{fitName(item.name, 16)}</div>
-                        <div className="text-black font-bold" style={{ fontSize: "8px" }}>Rs.{item.price.toFixed(2)}</div>
-                        <div className="text-neutral-500" style={{ fontSize: "6px" }}>#{item.qrCodeNumber}</div>
-                      </div>
-                    </div>
-                  )))}
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {printQueue.slice(0, 4).map((item) => {
+                    const templateItem: QRTemplateItem = {
+                      name: item.name,
+                      price: item.price,
+                      qrCodeNumber: item.qrCodeNumber,
+                      qrDataUrl: item.qrDataUrl,
+                    };
+                    return (
+                      <div
+                        key={item.id}
+                        className={`qr-label-box tpl-${selectedTemplateId} border border-border/20 rounded-md overflow-hidden`}
+                        dangerouslySetInnerHTML={{
+                          __html: getTemplateById(selectedTemplateId).renderLabel(templateItem, fitName),
+                        }}
+                      />
+                    );
+                  })}
                 </div>
-                {totalLabels * 2 > 6 && (
+                {printQueue.length > 4 && (
                   <p className="text-[11px] text-muted-foreground text-center mt-2">
-                    +{totalLabels * 2 - 6} more sticker{totalLabels * 2 - 6 !== 1 ? "s" : ""} not shown in preview
+                    +{printQueue.length - 4} more product{printQueue.length - 4 !== 1 ? "s" : ""} not shown in preview
                   </p>
                 )}
               </div>
@@ -403,7 +443,7 @@ export default function BarcodePrint() {
             size="lg"
           >
             <Printer className="mr-2 h-5 w-5" />
-            Print Thermal Stickers ({LABEL_W}×{LABEL_H}mm)
+            Print with "{getTemplateById(selectedTemplateId).name}" ({LABEL_W}×{LABEL_H}mm)
           </Button>
           <p className="text-xs text-muted-foreground text-center mt-2">
             Universal thermal sticker roll · 2 labels side-by-side · double-sided
