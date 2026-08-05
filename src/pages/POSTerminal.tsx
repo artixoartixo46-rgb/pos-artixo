@@ -1658,13 +1658,13 @@ export default function POSTerminal() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
+        <h1 className="text-2xl font-bold bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent">
           POS Terminal
         </h1>
-        <div className="flex justify-between items-center mt-2">
-          <p className="text-muted-foreground">Create new sale and manage transactions</p>
+        <div className="flex justify-between items-center mt-1">
+          <p className="text-sm text-muted-foreground">Create new sale and manage transactions</p>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" className="glass border-border/50">
@@ -1730,10 +1730,10 @@ export default function POSTerminal() {
 
       {/* Credit Customer Search */}
       <Card className="glass-card border-border/50">
-        <CardContent className="pt-6">
+        <CardContent className="p-3">
           <div className="flex items-center gap-4">
             <div className="flex-1">
-              <label className="text-sm text-muted-foreground mb-2 block">Credit Customer (Optional)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Credit Customer (Optional)</label>
               <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
                 <PopoverTrigger asChild>
                   <Button
@@ -1797,14 +1797,14 @@ export default function POSTerminal() {
                   setSelectedCustomer(null);
                   setPaymentMethod("Cash");
                 }}
-                className="mt-6"
+                className="mt-4"
               >
                 <X className="h-4 w-4" />
               </Button>
             )}
           </div>
           {selectedCustomer && (
-            <div className="mt-3 p-3 glass-card border-border/30 rounded-md">
+            <div className="mt-2 p-2 glass-card border-border/30 rounded-md">
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-sm font-medium">{selectedCustomer.name}</p>
@@ -1822,11 +1822,11 @@ export default function POSTerminal() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div className="space-y-4">
           <Card className="glass-card border-border/50">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center justify-between text-lg">
                 <span>Products</span>
                 {voiceSupported && (
                   <div className="flex items-center gap-2">
@@ -1845,7 +1845,7 @@ export default function POSTerminal() {
                 )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0">
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
@@ -1956,32 +1956,32 @@ export default function POSTerminal() {
 
         <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card className="glass-card border-border/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="flex items-center gap-2 text-lg">
                 <ShoppingCart className="h-5 w-5 text-primary" />
                 Current Sale
               </CardTitle>
             </CardHeader>
-            <CardContent className="lg:max-h-[calc(100vh-12rem)] overflow-y-auto">
-              <div className="space-y-3 mb-4">
+            <CardContent className="p-4 pt-0">
+              <div className={`space-y-2 mb-3 ${cart.length > 3 ? "max-h-[180px] overflow-y-auto pr-1" : ""}`}>
                 {cart.map((item) => (
                   <div
                     key={item.line_key}
-                    className="flex items-center justify-between p-3 glass-card border-border/30"
+                    className="flex items-center justify-between p-2 glass-card border-border/30"
                   >
                     <div className="flex-1">
-                      <p className="font-medium">
+                      <p className="font-medium text-sm">
                         {item.name}
                         {item.sold_unit === "case" && (
                           <span className="ml-1 text-xs text-primary font-normal">(case)</span>
                         )}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-xs text-muted-foreground">
                         Rs. {item.price ? Number(item.price).toFixed(2) : '0.00'} / {item.unit_label || "pcs"}
                         {item.min_order_qty > 1 && item.sold_unit === "unit" && ` · min ${item.min_order_qty}`}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       {item.is_weight_based ? (
                         <Input
                           type="number"
@@ -1989,67 +1989,67 @@ export default function POSTerminal() {
                           min="0"
                           value={item.quantity}
                           onChange={(e) => setLineQuantity(item.line_key, parseFloat(e.target.value) || 0)}
-                          className="w-20 h-8 glass border-border/50 text-center"
+                          className="w-16 h-7 glass border-border/50 text-center"
                         />
                       ) : (
                         <>
                           <Button
                             size="icon"
                             variant="outline"
-                            className="h-8 w-8 glass"
+                            className="h-7 w-7 glass"
                             onClick={() => updateQuantity(item.line_key, item.sold_unit === "case" ? -(item.case_size || 1) : -1)}
                           >
-                            <Minus className="h-4 w-4" />
+                            <Minus className="h-3.5 w-3.5" />
                           </Button>
-                          <span className="w-8 text-center font-bold">
+                          <span className="w-7 text-center font-bold text-sm">
                             {item.sold_unit === "case" ? item.quantity / (item.case_size || 1) : item.quantity}
                           </span>
                           <Button
                             size="icon"
                             variant="outline"
-                            className="h-8 w-8 glass"
+                            className="h-7 w-7 glass"
                             onClick={() => updateQuantity(item.line_key, item.sold_unit === "case" ? (item.case_size || 1) : 1)}
                           >
-                            <Plus className="h-4 w-4" />
+                            <Plus className="h-3.5 w-3.5" />
                           </Button>
                         </>
                       )}
                       <Button
                         size="icon"
                         variant="destructive"
-                        className="h-8 w-8 ml-2"
+                        className="h-7 w-7 ml-1"
                         onClick={() => removeFromCart(item.line_key)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                    <div className="ml-4 text-right">
-                      <p className="font-bold text-primary">
+                    <div className="ml-3 text-right">
+                      <p className="font-bold text-primary text-sm">
                         Rs. {item.price ? (Number(item.price) * item.quantity).toFixed(2) : '0.00'}
                       </p>
                     </div>
                   </div>
                 ))}
                 {cart.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">
+                  <p className="text-center text-muted-foreground text-sm py-3">
                     Cart is empty. Add products to start.
                   </p>
                 )}
               </div>
 
-              <div className="space-y-3 pt-4 border-t border-border/50">
+              <div className="space-y-2 pt-2 border-t border-border/50">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal:</span>
                   <span className="font-medium">Rs. {subtotal.toFixed(2)}</span>
                 </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Discount</label>
+
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Discount</label>
                   <div className="flex gap-2">
                     <select
                       value={discountType}
                       onChange={(e) => setDiscountType(e.target.value as DiscountType)}
-                      className="glass border-border/50 rounded-md px-3 py-2 text-sm bg-background/50"
+                      className="glass border-border/50 rounded-md px-2 h-9 text-sm bg-background/50"
                     >
                       <option value="percentage">%</option>
                       <option value="fixed">Rs.</option>
@@ -2060,26 +2060,26 @@ export default function POSTerminal() {
                       onChange={(e) => setDiscount(Number(e.target.value))}
                       placeholder="0"
                       min="0"
-                      className="glass border-border/50"
+                      className="glass border-border/50 h-9"
                     />
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Discount Amount:</span>
                     <span className="font-medium text-red-400">-Rs. {discountAmount.toFixed(2)}</span>
                   </div>
                 </div>
 
-                <div className="flex justify-between text-xl font-bold pt-2 border-t border-border/50">
+                <div className="flex justify-between text-lg font-bold pt-1 border-t border-border/50">
                   <span>Total:</span>
                   <span className="text-primary">Rs. {total.toFixed(2)}</span>
                 </div>
 
-                <div className="space-y-2 pt-2">
-                  <label className="text-sm text-muted-foreground">Payment Method</label>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Payment Method</label>
                   <select
                     value={paymentMethod}
                     onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                    className="w-full glass border-border/50 rounded-md px-3 py-2 bg-background/50"
+                    className="w-full glass border-border/50 rounded-md px-3 h-9 bg-background/50"
                   >
                     <option value="Cash">Cash</option>
                     <option value="Card">Card</option>
@@ -2087,8 +2087,8 @@ export default function POSTerminal() {
                   </select>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">
                     Customer Paid Amount {paymentMethod === "Credit" && "(Partial payment allowed)"}
                   </label>
                   <Input
@@ -2098,12 +2098,12 @@ export default function POSTerminal() {
                     placeholder="0.00"
                     min="0"
                     step="0.01"
-                    className="glass border-border/50 text-lg"
+                    className="glass border-border/50 h-9"
                   />
                 </div>
 
                 {customerPaidAmount > 0 && (
-                  <div className="flex justify-between text-lg font-semibold pt-2">
+                  <div className="flex justify-between text-sm font-semibold">
                     <span className="text-muted-foreground">
                       {paymentMethod === "Credit" ? "Remaining Balance:" : "Balance:"}
                     </span>
@@ -2113,30 +2113,32 @@ export default function POSTerminal() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3 mt-4">
+                <div className="grid grid-cols-3 gap-2 pt-1">
                   <Button
                     variant="outline"
+                    size="sm"
                     className="glass border-border/50"
                     disabled={cart.length === 0}
                     onClick={handlePrintBill}
                   >
-                    <Printer className="h-4 w-4 mr-2" />
+                    <Printer className="h-3.5 w-3.5 mr-1" />
                     Print Bill
                   </Button>
                   <Button
                     variant="outline"
+                    size="sm"
                     className="glass border-border/50"
                     disabled={!lastReceiptData}
                     onClick={() => lastReceiptData && printReceipt(lastReceiptData)}
                   >
-                    <Printer className="h-4 w-4 mr-2" />
+                    <Printer className="h-3.5 w-3.5 mr-1" />
                     Reprint Last
                   </Button>
                   <Button
-                    className="bg-primary hover:bg-primary/90 text-white"
-                    size="lg"
+                    size="sm"
+                    className="bg-primary hover:bg-primary/90 text-white font-semibold"
                     disabled={
-                      cart.length === 0 || 
+                      cart.length === 0 ||
                       (paymentMethod !== "Credit" && customerPaidAmount < total) ||
                       (paymentMethod === "Credit" && !selectedCustomer)
                     }
