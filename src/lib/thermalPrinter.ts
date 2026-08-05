@@ -214,6 +214,7 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   bold(true);
   push("Thank you! Visit Again\n");
   bold(false);
+  push("Support: +94 75 412 0403\n");
   push("Powered by Artixo\n");
   feed(4);
 

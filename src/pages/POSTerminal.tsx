@@ -25,6 +25,10 @@ import {
   getPaperWidth,
 } from "@/lib/thermalPrinter";
 import artixoLogo from "@/assets/artixo-logo.png";
+
+// Artixo support line, shown on printed receipts regardless of whether the shop has
+// filled in its own phone number in Settings - same number used in the TopBar.
+const SUPPORT_PHONE = "+94 75 412 0403";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   getCachedPriceTiers,
@@ -976,7 +980,7 @@ export default function POSTerminal() {
             <div class="footer">
               <div class="thanks">Thank You!</div>
               <div class="stamp">VISIT<br/>AGAIN</div>
-              ${businessPhone ? `<div class="support">Need help? Call ${businessPhone}</div>` : ''}
+              <div class="support">Support: ${SUPPORT_PHONE}</div>
               <div class="powered">POWERED BY ARTIXO POS</div>
             </div>
           </div>
@@ -1657,8 +1661,9 @@ export default function POSTerminal() {
 
           <div class="footer">
             <p>Thank you for your payment!</p>
-            <p>Visit Again - JD CREATION POS</p>
-            <p style="font-size: 10px; color: #666;">Powered by Lovable AI</p>
+            <p>Visit Again - Artixo POS</p>
+            <p style="font-size: 11px;">Support: ${SUPPORT_PHONE}</p>
+            <p style="font-size: 10px; color: #666;">Powered by Artixo POS</p>
           </div>
         </body>
       </html>
