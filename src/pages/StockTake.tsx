@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ClipboardCheck, Camera, ScanBarcode, CheckCircle2, History, Loader2, AlertTriangle, Trash2 } from "lucide-react";
+import { ClipboardCheck, Camera, ScanBarcode, CheckCircle2, History, Loader2, AlertTriangle, Trash2, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { QRScanner } from "@/components/QRScanner";
@@ -102,6 +102,85 @@ export default function StockTake() {
       return data as any[];
     },
   });
+
+  // Shrinkage trend: pull every count from every *completed* stock take (not the in-progress
+  // one, and not cancelled ones - those get their rows deleted via cascade) and group by
+  // product, so a product that's short again and again stands out from a one-off miscount.
+  const { data: shrinkageRows, isLoading: shrinkageLoading } = useQuery({
+    queryKey: ["shrinkage-trend"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stock_take_items")
+        .select("product_id, system_qty, counted_qty, variance, scanned_at, stock_takes!inner(status, completed_at), products(name, unit_label, barcode)")
+        .eq("stock_takes.status", "completed")
+        .order("scanned_at", { ascending: true });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
+  const shrinkageTrend = useMemo(() => {
+    if (!shrinkageRows) return [];
+    const byProduct = new Map<
+      string,
+      {
+        productId: string;
+        name: string;
+        unitLabel: string;
+        barcode: string | null;
+        timesCounted: number;
+        timesShort: number;
+        totalShortQty: number;
+        totalVariance: number;
+        lastVariance: number;
+        lastCompletedAt: string;
+      }
+    >();
+
+    for (const row of shrinkageRows) {
+      const variance = Number(row.variance);
+      const completedAt = row.stock_takes?.completed_at || row.scanned_at;
+      const existing = byProduct.get(row.product_id);
+      if (existing) {
+        existing.timesCounted += 1;
+        if (variance < 0) {
+          existing.timesShort += 1;
+          existing.totalShortQty += Math.abs(variance);
+        }
+        existing.totalVariance += variance;
+        if (completedAt >= existing.lastCompletedAt) {
+          existing.lastVariance = variance;
+          existing.lastCompletedAt = completedAt;
+        }
+      } else {
+        byProduct.set(row.product_id, {
+          productId: row.product_id,
+          name: row.products?.name || "Unknown product",
+          unitLabel: row.products?.unit_label || "pcs",
+          barcode: row.products?.barcode || null,
+          timesCounted: 1,
+          timesShort: variance < 0 ? 1 : 0,
+          totalShortQty: variance < 0 ? Math.abs(variance) : 0,
+          totalVariance: variance,
+          lastVariance: variance,
+          lastCompletedAt: completedAt,
+        });
+      }
+    }
+
+    return Array.from(byProduct.values())
+      .map((p) => ({
+        ...p,
+        shortRate: p.timesShort / p.timesCounted,
+        avgVariance: p.totalVariance / p.timesCounted,
+      }))
+      .filter((p) => p.timesShort > 0)
+      .sort((a, b) => {
+        // Repeat offenders (short almost every time, counted more than once) float to the top.
+        if (b.timesShort !== a.timesShort) return b.timesShort - a.timesShort;
+        return b.totalShortQty - a.totalShortQty;
+      });
+  }, [shrinkageRows]);
 
   useEffect(() => {
     if (activeStockTake) scanInputRef.current?.focus();
@@ -451,6 +530,77 @@ export default function StockTake() {
                     <TableCell className="text-muted-foreground text-sm">{format(new Date(st.started_at), "dd MMM yyyy, HH:mm")}</TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Shrinkage trend - products that keep coming up short across multiple completed
+          stock takes. A single short count can be a miscount; a repeated one is a signal. */}
+      <Card className="glass-card border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingDown className="h-5 w-5 text-destructive" />
+            Shrinkage Trend
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {shrinkageLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              Loading history...
+            </div>
+          ) : !pastStockTakes || pastStockTakes.length < 2 ? (
+            <p className="text-muted-foreground text-sm py-4">
+              Complete at least 2 stock takes to start seeing repeated-shortage patterns here.
+            </p>
+          ) : shrinkageTrend.length === 0 ? (
+            <p className="text-muted-foreground text-sm py-4">
+              No products have come up short across completed stock takes yet. Good sign.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-center">Times Counted</TableHead>
+                  <TableHead className="text-center">Times Short</TableHead>
+                  <TableHead className="text-right">Total Units Short</TableHead>
+                  <TableHead className="text-right">Avg Variance</TableHead>
+                  <TableHead className="text-right">Last Variance</TableHead>
+                  <TableHead className="text-center">Flag</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shrinkageTrend.map((p) => {
+                  const repeatOffender = p.timesShort >= 2 && p.shortRate >= 0.5;
+                  return (
+                    <TableRow key={p.productId}>
+                      <TableCell>
+                        <div className="font-medium">{p.name}</div>
+                        {p.barcode && <div className="text-xs text-muted-foreground">{p.barcode}</div>}
+                      </TableCell>
+                      <TableCell className="text-center">{p.timesCounted}</TableCell>
+                      <TableCell className="text-center">{p.timesShort}</TableCell>
+                      <TableCell className="text-right text-destructive font-semibold">
+                        -{p.totalShortQty.toLocaleString()} {p.unitLabel}
+                      </TableCell>
+                      <TableCell className="text-right">{p.avgVariance.toFixed(1)}</TableCell>
+                      <TableCell className="text-right">{p.lastVariance}</TableCell>
+                      <TableCell className="text-center">
+                        {repeatOffender ? (
+                          <Badge variant="destructive" className="gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Repeat
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Watch</Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
