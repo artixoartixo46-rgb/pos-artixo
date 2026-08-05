@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { SplashScreen } from "./components/SplashScreen";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import POSTerminal from "./pages/POSTerminal";
@@ -22,11 +24,15 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  const [showSplash, setShowSplash] = useState(true);
+
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
@@ -49,6 +55,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;
