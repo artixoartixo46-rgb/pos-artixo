@@ -443,7 +443,7 @@ export default function Vendors() {
           </Dialog>
 
           {/* Add Vendor Button */}
-          <Dialog open={isDialogOpen} onOpenChange={handleDialogClose}>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => (open ? setIsDialogOpen(true) : handleDialogClose())}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
