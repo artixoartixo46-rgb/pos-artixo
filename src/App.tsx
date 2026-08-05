@@ -12,6 +12,7 @@ import SettingsPage from "./pages/SettingsPage";
 import Vendors from "./pages/Vendors";
 import ProductCategory from "./pages/ProductCategory";
 import ProductReceiving from "./pages/ProductReceiving";
+import OrderManagement from "./pages/OrderManagement";
 import ProductInventory from "./pages/ProductInventory";
 import CreditCustomers from "./pages/CreditCustomers";
 import BarcodePrint from "./pages/BarcodePrint";
@@ -32,6 +33,7 @@ const App = () => (
           <Route path="/items" element={<Layout><Items /></Layout>} />
           <Route path="/product-category" element={<Layout><ProductCategory /></Layout>} />
           <Route path="/vendors" element={<Layout><Vendors /></Layout>} />
+          <Route path="/order-management" element={<Layout><OrderManagement /></Layout>} />
           <Route path="/credit-customers" element={<Layout><CreditCustomers /></Layout>} />
           <Route path="/credit-purchase-history" element={<Layout><CreditPurchaseHistory /></Layout>} />
           <Route path="/product-receiving" element={<Layout><ProductReceiving /></Layout>} />

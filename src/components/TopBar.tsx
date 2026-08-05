@@ -22,13 +22,15 @@ export default function TopBar() {
   const { data: lowStockItems } = useQuery({
     queryKey: ["topbar-low-stock"],
     queryFn: async () => {
+      // PostgREST filters like .lt() only compare a column to a literal value, not to
+      // another column - so this has to be fetched and compared client-side.
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, stock_quantity, min_stock_level")
-        .lt("stock_quantity", "min_stock_level")
-        .limit(10);
+        .select("id, name, stock_quantity, min_stock_level");
       if (error) throw error;
-      return data || [];
+      return (data || [])
+        .filter((p) => Number(p.stock_quantity ?? 0) <= Number(p.min_stock_level ?? 0))
+        .slice(0, 10);
     },
     refetchInterval: 60000,
   });

@@ -41,13 +41,16 @@ export default function Dashboard() {
   const { data: lowStockItems } = useQuery({
     queryKey: ["low-stock"],
     queryFn: async () => {
+      // PostgREST filters like .lt() only compare a column to a literal value, not to
+      // another column - so this has to be fetched and compared client-side.
       const { data, error } = await supabase
         .from("products")
-        .select("*")
-        .lt("stock_quantity", "min_stock_level");
-      
+        .select("*");
+
       if (error) throw error;
-      return data || [];
+      return (data || []).filter(
+        (p) => Number(p.stock_quantity ?? 0) <= Number(p.min_stock_level ?? 0)
+      );
     },
   });
 
