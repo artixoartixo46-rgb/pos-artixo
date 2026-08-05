@@ -1822,8 +1822,8 @@ export default function POSTerminal() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="space-y-4 lg:order-2">
           <Card className="glass-card border-border/50">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center justify-between text-lg">
@@ -1915,7 +1915,7 @@ export default function POSTerminal() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3 max-h-[600px] overflow-y-auto mt-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto mt-4">
                 {products?.map((product) => {
                   const hasCase = product.case_size && Number(product.case_size) > 1;
                   const caseTotal = product.case_price != null
@@ -1954,7 +1954,7 @@ export default function POSTerminal() {
           </Card>
         </div>
 
-        <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+        <div className="space-y-4 lg:order-1 lg:sticky lg:top-4 lg:self-start">
           <Card className="glass-card border-border/50">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -2116,27 +2116,24 @@ export default function POSTerminal() {
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="glass border-border/50"
+                    className="h-12 border-2 border-border/60 font-bold uppercase tracking-wide text-xs rounded-xl"
                     disabled={cart.length === 0}
                     onClick={handlePrintBill}
                   >
-                    <Printer className="h-3.5 w-3.5 mr-1" />
-                    Print Bill
+                    <Printer className="h-4 w-4 mr-1" />
+                    Print
                   </Button>
                   <Button
                     variant="outline"
-                    size="sm"
-                    className="glass border-border/50"
+                    className="h-12 border-2 border-border/60 font-bold uppercase tracking-wide text-xs rounded-xl"
                     disabled={!lastReceiptData}
                     onClick={() => lastReceiptData && printReceipt(lastReceiptData)}
                   >
-                    <Printer className="h-3.5 w-3.5 mr-1" />
-                    Reprint Last
+                    <Printer className="h-4 w-4 mr-1" />
+                    Reprint
                   </Button>
                   <Button
-                    size="sm"
-                    className="bg-primary hover:bg-primary/90 text-white font-semibold"
+                    className="h-12 bg-primary hover:bg-primary/90 text-white font-extrabold uppercase tracking-wide text-xs rounded-xl shadow-[0_6px_20px_-4px_hsl(var(--primary)/0.5)]"
                     disabled={
                       cart.length === 0 ||
                       (paymentMethod !== "Credit" && customerPaidAmount < total) ||
@@ -2144,7 +2141,7 @@ export default function POSTerminal() {
                     }
                     onClick={() => createSaleMutation.mutate()}
                   >
-                    {paymentMethod === "Credit" ? "Create Credit Bill" : "Complete Sale"}
+                    {paymentMethod === "Credit" ? "Credit Bill" : "Pay"}
                   </Button>
                 </div>
               </div>
