@@ -32,3 +32,5 @@ dev-dist
 supabase/.temp
 
 .vercel
+
+vite.config.ts.timestamp-*.mjs
