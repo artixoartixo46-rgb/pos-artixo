@@ -4,8 +4,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
+import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
+import {
+  getScaleSettings,
+  saveScaleSettings,
+  connectSerialScale,
+  disconnectSerialScale,
+  connectBluetoothScale,
+  disconnectBluetoothScale,
+  type ScaleSettings,
+  type ScaleStatus,
+  type ScaleReading,
+  type ScaleConnectionType,
+} from "@/lib/scaleReader";
 import { useToast } from "@/hooks/use-toast";
 import { useVoiceSearch, phoneticMatch } from "@/hooks/useVoiceSearch";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -125,6 +138,11 @@ export default function POSTerminal() {
   const [paymentRemarks, setPaymentRemarks] = useState<string>("");
   const [viewCustomer, setViewCustomer] = useState<CreditCustomer | null>(null);
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [scaleDialogOpen, setScaleDialogOpen] = useState(false);
+  const [scaleStatus, setScaleStatus] = useState<ScaleStatus>("disconnected");
+  const [scaleConnectionType, setScaleConnectionType] = useState<ScaleConnectionType | null>(null);
+  const [scaleReading, setScaleReading] = useState<ScaleReading | null>(null);
+  const [scaleSettings, setScaleSettings] = useState<ScaleSettings>(getScaleSettings());
   const [lastReceiptData, setLastReceiptData] = useState<{
     invoiceNumber: string;
     items: CartItem[];
@@ -1409,7 +1427,10 @@ export default function POSTerminal() {
         )
       );
     } else {
-      const initialQuantity = isCase ? (caseSize || 1) : Math.max(minOrderQty, isWeightBased ? 0.1 : 1);
+      const scaleQty = isWeightBased && scaleStatus === "connected" && scaleReading ? scaleReading.weightKg : null;
+      const initialQuantity = isCase
+        ? (caseSize || 1)
+        : Math.max(minOrderQty, scaleQty && scaleQty > 0 ? scaleQty : isWeightBased ? 0.1 : 1);
       setCart([...cart, buildCartLine(product, soldUnit, initialQuantity)]);
     }
   };
@@ -1438,6 +1459,60 @@ export default function POSTerminal() {
           : item
       )
     );
+  };
+
+  const handleScaleDisconnect = () => {
+    setScaleStatus("disconnected");
+    setScaleConnectionType(null);
+    setScaleReading(null);
+  };
+
+  const handleConnectSerialScale = async () => {
+    setScaleStatus("connecting");
+    try {
+      await connectSerialScale(scaleSettings, (reading) => setScaleReading(reading), handleScaleDisconnect);
+      setScaleStatus("connected");
+      setScaleConnectionType("serial");
+    } catch (error: any) {
+      setScaleStatus("disconnected");
+      toast({
+        title: "Scale connection failed",
+        description: error.message || "Could not connect to the scale.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleConnectBluetoothScale = async () => {
+    setScaleStatus("connecting");
+    try {
+      await connectBluetoothScale(scaleSettings, (reading) => setScaleReading(reading), handleScaleDisconnect);
+      setScaleStatus("connected");
+      setScaleConnectionType("bluetooth");
+    } catch (error: any) {
+      setScaleStatus("disconnected");
+      toast({
+        title: "Scale connection failed",
+        description: error.message || "Could not connect to the scale.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDisconnectScale = async () => {
+    await disconnectSerialScale();
+    await disconnectBluetoothScale();
+    handleScaleDisconnect();
+  };
+
+  const handleScaleSettingsChange = (settings: ScaleSettings) => {
+    setScaleSettings(settings);
+    saveScaleSettings(settings);
+  };
+
+  const captureScaleWeight = (lineKey: string) => {
+    if (!scaleReading) return;
+    setLineQuantity(lineKey, Number(scaleReading.weightKg.toFixed(3)));
   };
 
   const removeFromCart = (lineKey: string) => {
@@ -1938,6 +2013,14 @@ export default function POSTerminal() {
                   <Camera className="h-4 w-4 mr-2" />
                   Scan QR
                 </Button>
+                <Button
+                  onClick={() => setScaleDialogOpen(true)}
+                  variant="outline"
+                  className="glass gap-2"
+                >
+                  <WeightIcon className={`h-4 w-4 ${scaleStatus === "connected" ? "text-green-600" : ""}`} />
+                  {scaleStatus === "connected" ? `${scaleReading ? scaleReading.weightKg.toFixed(3) : "0.000"} kg` : "Scale"}
+                </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 USB/Bluetooth barcode scanner? Just plug it in (or pair it) and scan — it types straight into the search bar above and adds the item automatically.
@@ -2024,14 +2107,27 @@ export default function POSTerminal() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       {item.is_weight_based ? (
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.quantity}
-                          onChange={(e) => setLineQuantity(item.line_key, parseFloat(e.target.value) || 0)}
-                          className="w-16 h-7 glass border-border/50 text-center"
-                        />
+                        <>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={item.quantity}
+                            onChange={(e) => setLineQuantity(item.line_key, parseFloat(e.target.value) || 0)}
+                            className="w-16 h-7 glass border-border/50 text-center"
+                          />
+                          {scaleStatus === "connected" && (
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="h-7 w-7 glass"
+                              title={`Capture ${scaleReading ? scaleReading.weightKg.toFixed(3) : "0.000"} kg from scale`}
+                              onClick={() => captureScaleWeight(item.line_key)}
+                            >
+                              <WeightIcon className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </>
                       ) : (
                         <>
                           <Button
@@ -2487,6 +2583,19 @@ export default function POSTerminal() {
           handleQRScan(data);
           setQrScannerOpen(false);
         }}
+      />
+
+      <ScaleConnectDialog
+        open={scaleDialogOpen}
+        onClose={() => setScaleDialogOpen(false)}
+        status={scaleStatus}
+        connectionType={scaleConnectionType}
+        reading={scaleReading}
+        settings={scaleSettings}
+        onSettingsChange={handleScaleSettingsChange}
+        onConnectSerial={handleConnectSerialScale}
+        onConnectBluetooth={handleConnectBluetoothScale}
+        onDisconnect={handleDisconnectScale}
       />
     </div>
   );
