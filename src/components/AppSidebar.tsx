@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Settings, Users, FolderOpen, TruckIcon, Archive, UserCheck, QrCode, History, ClipboardList } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Settings, Users, FolderOpen, TruckIcon, Archive, UserCheck, QrCode, History, ClipboardList, ClipboardCheck } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { NavLink } from "react-router-dom";
 import {
@@ -24,6 +24,7 @@ const items = [
   { title: "Purchase History", url: "/credit-purchase-history", icon: History },
   { title: "Product Receiving", url: "/product-receiving", icon: TruckIcon },
   { title: "Product Inventory", url: "/product-inventory", icon: Archive },
+  { title: "Stock Take", url: "/stock-take", icon: ClipboardCheck },
   { title: "QR Code Print", url: "/barcode-print", icon: QrCode },
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Settings", url: "/settings", icon: Settings },
