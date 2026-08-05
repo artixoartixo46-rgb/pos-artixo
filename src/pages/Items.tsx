@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Package, Plus, Barcode, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X } from "lucide-react";
+import { Package, Plus, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { QRCodeGenerator } from "@/components/QRCodeGenerator";
@@ -274,13 +274,6 @@ export default function Items() {
       min_order_qty: product.min_order_qty ?? "1",
     });
     setOpen(true);
-  };
-
-  const generateBarcode = () => {
-    // Sequential numeric barcode based on QR code number, padded to 13 digits
-    const qrNum = parseInt(formData.qr_code_number) || 1001;
-    const barcode = String(qrNum).padStart(13, '0');
-    setFormData({ ...formData, barcode });
   };
 
   const generateAutoBarcode = () => {
@@ -583,19 +576,6 @@ export default function Items() {
                     onChange={(e) => setFormData({ ...formData, min_order_qty: e.target.value })}
                     className="glass border-border/50"
                   />
-                </div>
-                <div>
-                  <Label>Barcode</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={formData.barcode}
-                      onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                      className="glass border-border/50"
-                    />
-                    <Button type="button" variant="outline" className="glass" onClick={generateBarcode}>
-                      <Barcode className="h-4 w-4" />
-                    </Button>
-                  </div>
                 </div>
                 <div>
                   <Label>QR Code Number</Label>
