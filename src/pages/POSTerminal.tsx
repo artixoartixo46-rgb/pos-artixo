@@ -834,9 +834,9 @@ export default function POSTerminal() {
     const formatQty = (item: CartItem) =>
       item.is_weight_based ? item.quantity.toFixed(3) : String(item.quantity);
 
-    const itemsHTML = saleData.items.map(item => `
+    const itemsHTML = saleData.items.map((item, idx) => `
       <div class="item">
-        <div class="item-name">${item.name}</div>
+        <div class="item-name"><span class="item-no">${String(idx + 1).padStart(2, '0')}</span>${item.name}</div>
         <div class="item-row">
           <span class="item-qty">${formatQty(item)}${item.unit_label ? ` ${item.unit_label}` : ''} &times; ${(item.price ?? 0).toFixed(2)}</span>
           <span class="item-amt">Rs. ${((item.price ?? 0) * item.quantity).toFixed(2)}</span>
@@ -857,6 +857,7 @@ export default function POSTerminal() {
             }
             body {
               font-family: 'Consolas', 'Courier New', monospace;
+              font-weight: 700;
               font-size: 11px;
               width: ${widthMm}mm;
               margin: 0 auto;
@@ -865,111 +866,119 @@ export default function POSTerminal() {
               color: #000;
               line-height: 1.45;
             }
+            .ticket { border: 2.5px solid #000; padding: 4mm 3mm; }
+            .zigzag { height: 5px; margin: 0 -3mm 6px -3mm; background-image: linear-gradient(135deg, #fff 50%, transparent 50%), linear-gradient(-135deg, #fff 50%, transparent 50%); background-size: 8px 10px; background-position: bottom; background-repeat: repeat-x; background-color: #000; }
+            .zigzag.bottom { margin: 6px -3mm 0 -3mm; }
             .header { text-align: center; margin-bottom: 8px; }
             .header img { width: 16mm; height: auto; margin: 0 auto 3px auto; display: block; }
-            .header h1 { font-size: 15px; font-weight: 800; letter-spacing: 0.3px; margin-bottom: 2px; }
-            .header .tagline { font-size: 8px; color: #555; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
-            .header p { font-size: 9px; color: #333; }
-            .divider { border-top: 1.5px dashed #000; margin: 7px 0; }
-            .divider.light { border-top: 1px dashed #999; }
-            .info-row { display: flex; justify-content: space-between; margin: 2.5px 0; font-size: 10px; }
-            .info-row .val { font-weight: 700; }
-            .section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #444; margin-bottom: 4px; }
-            .items-head { display: flex; justify-content: space-between; font-size: 9px; font-weight: 700; text-transform: uppercase; color: #444; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 5px; }
+            .header h1 { font-size: 17px; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
+            .header .tagline { display: inline-block; font-size: 8px; font-weight: 800; color: #fff; background: #000; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 8px; margin-bottom: 4px; }
+            .header p { font-size: 9.5px; font-weight: 700; color: #000; }
+            .divider-stars { text-align: center; font-size: 10px; font-weight: 900; letter-spacing: 3px; margin: 7px 0; }
+            .divider { border-top: 2px dashed #000; margin: 7px 0; }
+            .info-row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10.5px; font-weight: 700; }
+            .info-row .val { font-weight: 900; }
+            .items-head { display: flex; justify-content: space-between; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; background: #000; color: #fff; padding: 3px 4px; margin-bottom: 6px; }
             .items { margin: 6px 0; }
-            .item { margin-bottom: 5px; }
-            .item-name { font-size: 11px; font-weight: 600; }
-            .item-row { display: flex; justify-content: space-between; font-size: 10px; color: #333; margin-top: 1px; }
-            .item-amt { font-weight: 700; color: #000; }
-            .totals .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10.5px; }
+            .item { margin-bottom: 6px; }
+            .item-no { display: inline-block; font-weight: 900; color: #fff; background: #000; font-size: 8px; padding: 1px 4px; border-radius: 3px; margin-right: 5px; }
+            .item-name { font-size: 11.5px; font-weight: 800; }
+            .item-row { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; color: #000; margin-top: 2px; padding-left: 20px; }
+            .item-amt { font-weight: 900; }
+            .totals .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 11px; font-weight: 800; }
             .totals .discount { color: #b00020; }
-            .totals .grand { font-size: 15px; font-weight: 800; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 5px 0; margin-top: 5px; }
+            .totals .grand { font-size: 16px; font-weight: 900; background: #000; color: #fff; padding: 6px 5px; margin-top: 6px; letter-spacing: 0.5px; }
             .payment { margin: 8px 0; }
-            .payment .due { font-weight: 800; font-size: 12px; }
-            .footer { text-align: center; margin-top: 14px; font-size: 10px; }
-            .footer .thanks { font-weight: 800; font-size: 13px; margin-bottom: 3px; }
-            .footer .support { font-size: 9px; color: #333; margin-top: 4px; }
-            .footer .powered { font-size: 8px; color: #888; margin-top: 6px; letter-spacing: 0.4px; }
+            .payment .badge { display: inline-block; font-weight: 900; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; border: 2px solid #000; padding: 1px 8px; border-radius: 10px; }
+            .payment .due { font-weight: 900; font-size: 13px; border-top: 2px solid #000; padding-top: 4px; margin-top: 4px; }
+            .footer { text-align: center; margin-top: 14px; font-size: 10px; font-weight: 700; }
+            .footer .thanks { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+            .footer .stamp { display: inline-block; border: 2px solid #000; border-radius: 50%; padding: 6px 10px; font-weight: 900; font-size: 9px; letter-spacing: 1px; transform: rotate(-6deg); margin: 4px 0; }
+            .footer .support { font-size: 9.5px; font-weight: 700; color: #000; margin-top: 6px; }
+            .footer .powered { font-size: 8.5px; font-weight: 800; color: #000; margin-top: 8px; letter-spacing: 0.6px; }
           </style>
         </head>
         <body>
-          <div class="header">
-            <img src="${logoUrl}" alt="Artixo" />
-            <h1>${businessName}</h1>
-            <div class="tagline">Wholesale Grocery POS</div>
-            ${businessAddress ? `<p>${businessAddress}</p>` : ''}
-            ${businessPhone ? `<p>${businessPhone}</p>` : ''}
-          </div>
+          <div class="ticket">
+            <div class="header">
+              <img src="${logoUrl}" alt="Artixo" />
+              <h1>${businessName}</h1>
+              <div class="tagline">Wholesale Grocery POS</div>
+              ${businessAddress ? `<p>${businessAddress}</p>` : ''}
+              ${businessPhone ? `<p>${businessPhone}</p>` : ''}
+            </div>
 
-          <div class="divider"></div>
+            <div class="zigzag"></div>
 
-          <div class="info">
-            <div class="info-row">
-              <span>Invoice</span>
-              <span class="val">${saleData.invoiceNumber}</span>
+            <div class="info">
+              <div class="info-row">
+                <span>Invoice</span>
+                <span class="val">${saleData.invoiceNumber}</span>
+              </div>
+              <div class="info-row">
+                <span>Date</span>
+                <span class="val">${dateStr}&nbsp;&nbsp;${timeStr}</span>
+              </div>
+              ${saleData.customerName ? `
+              <div class="info-row">
+                <span>Customer</span>
+                <span class="val">${saleData.customerName}</span>
+              </div>
+              ` : ''}
             </div>
-            <div class="info-row">
-              <span>Date</span>
-              <span>${dateStr}&nbsp;&nbsp;${timeStr}</span>
-            </div>
-            ${saleData.customerName ? `
-            <div class="info-row">
-              <span>Customer</span>
-              <span class="val">${saleData.customerName}</span>
-            </div>
-            ` : ''}
-          </div>
 
-          <div class="divider"></div>
+            <div class="divider-stars">&#9670; &#9670; &#9670; &#9670; &#9670; &#9670; &#9670;</div>
 
-          <div class="items">
-            <div class="items-head">
-              <span>Item</span>
-              <span>Amount</span>
+            <div class="items">
+              <div class="items-head">
+                <span>Item</span>
+                <span>Amount</span>
+              </div>
+              ${itemsHTML}
             </div>
-            ${itemsHTML}
-          </div>
 
-          <div class="divider"></div>
+            <div class="divider"></div>
 
-          <div class="totals">
-            <div class="row">
-              <span>Subtotal</span>
-              <span>Rs. ${saleData.subtotal.toFixed(2)}</span>
+            <div class="totals">
+              <div class="row">
+                <span>Subtotal</span>
+                <span>Rs. ${saleData.subtotal.toFixed(2)}</span>
+              </div>
+              ${saleData.discountAmount > 0 ? `
+              <div class="row discount">
+                <span>Discount</span>
+                <span>- Rs. ${saleData.discountAmount.toFixed(2)}</span>
+              </div>
+              ` : ''}
+              <div class="row grand">
+                <span>TOTAL</span>
+                <span>Rs. ${saleData.total.toFixed(2)}</span>
+              </div>
             </div>
-            ${saleData.discountAmount > 0 ? `
-            <div class="row discount">
-              <span>Discount</span>
-              <span>- Rs. ${saleData.discountAmount.toFixed(2)}</span>
-            </div>
-            ` : ''}
-            <div class="row grand">
-              <span>TOTAL</span>
-              <span>Rs. ${saleData.total.toFixed(2)}</span>
-            </div>
-          </div>
 
-          <div class="payment">
-            <div class="info-row">
-              <span>Paid By</span>
-              <span class="val">${saleData.paymentMethod}</span>
+            <div class="payment">
+              <div class="info-row">
+                <span>Paid By</span>
+                <span class="badge">${saleData.paymentMethod}</span>
+              </div>
+              <div class="info-row">
+                <span>Paid Amount</span>
+                <span class="val">Rs. ${saleData.paidAmount.toFixed(2)}</span>
+              </div>
+              <div class="info-row due">
+                <span>${saleData.balance >= 0 ? 'Change' : 'Balance Due'}</span>
+                <span class="val">Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
+              </div>
             </div>
-            <div class="info-row">
-              <span>Paid Amount</span>
-              <span class="val">Rs. ${saleData.paidAmount.toFixed(2)}</span>
-            </div>
-            <div class="info-row due">
-              <span>${saleData.balance >= 0 ? 'Change' : 'Balance Due'}</span>
-              <span class="val">Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
-            </div>
-          </div>
 
-          <div class="divider light"></div>
+            <div class="zigzag bottom"></div>
 
-          <div class="footer">
-            <div class="thanks">Thank You! Please Visit Again</div>
-            ${businessPhone ? `<div class="support">Need help? Call ${businessPhone}</div>` : ''}
-            <div class="powered">POWERED BY ARTIXO POS</div>
+            <div class="footer">
+              <div class="thanks">Thank You!</div>
+              <div class="stamp">VISIT<br/>AGAIN</div>
+              ${businessPhone ? `<div class="support">Need help? Call ${businessPhone}</div>` : ''}
+              <div class="powered">POWERED BY ARTIXO POS</div>
+            </div>
           </div>
         </body>
       </html>
