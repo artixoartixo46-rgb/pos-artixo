@@ -33,38 +33,73 @@ export function AppSidebar() {
 
   return (
     <Sidebar className="glass border-r border-border/20">
-      <SidebarContent className="p-2">
+      <SidebarContent className="relative overflow-hidden p-2">
+        {/* Ambient floating glass blobs for a "living" background */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-10 top-10 h-40 w-40 rounded-full bg-primary/20 blur-3xl animate-sidebar-blob"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-12 bottom-24 h-44 w-44 rounded-full bg-secondary/20 blur-3xl animate-sidebar-blob"
+          style={{ animationDelay: "2.5s" }}
+        />
+
         {/* Logo */}
-        <div className="px-4 py-5 flex items-center gap-3">
-          <img src={artixoLogo} alt="Artixo" className="h-10 w-10 object-contain" />
-          <div>
-            <h1 className="text-2xl font-bold iridescent-glow tracking-tight">Artixo</h1>
-            <p className="text-xs text-muted-foreground mt-0.5 tracking-wide">Wholesale Grocery POS</p>
+        <div className="relative z-10 px-4 py-5 flex items-center gap-3 animate-in fade-in slide-in-from-top-3 duration-700 [animation-fill-mode:backwards]">
+          <div className="rounded-2xl bg-white/70 p-1.5 shadow-inner animate-logo-glow transition-transform duration-500 hover:scale-110 hover:-rotate-6">
+            <img src={artixoLogo} alt="Artixo" className="h-9 w-9 object-contain" />
           </div>
+          {open && (
+            <div className="animate-in fade-in slide-in-from-left-2 duration-500 [animation-delay:150ms] [animation-fill-mode:backwards]">
+              <h1 className="text-2xl font-bold iridescent-glow tracking-tight">Artixo</h1>
+              <p className="text-xs text-muted-foreground mt-0.5 tracking-wide">Wholesale Grocery POS</p>
+            </div>
+          )}
         </div>
 
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-muted-foreground/70 text-[10px] uppercase tracking-widest px-2 mb-1">
+        <SidebarGroup className="relative z-10">
+          <SidebarGroupLabel className="text-muted-foreground/70 text-[10px] uppercase tracking-widest px-2 mb-1 animate-in fade-in duration-700 [animation-delay:200ms] [animation-fill-mode:backwards]">
             Main Menu
           </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
+            <SidebarMenu className="gap-1.5">
+              {items.map((item, index) => (
+                <SidebarMenuItem
+                  key={item.title}
+                  className="animate-in fade-in slide-in-from-left-4 duration-500 [animation-fill-mode:backwards]"
+                  style={{ animationDelay: `${120 + index * 45}ms` }}
+                >
                   <SidebarMenuButton asChild>
                     <NavLink
                       to={item.url}
                       end={item.url === "/"}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 px-2 py-2.5 rounded-xl transition-all duration-300 ${
+                        `group relative flex items-center gap-3 px-3 py-2.5 rounded-full overflow-hidden transition-all duration-300 ease-out ${
                           isActive
-                            ? "glass-card bg-primary/15 text-primary border-primary/25 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.3)]"
-                            : "text-sidebar-foreground/80 hover:bg-muted/30 hover:text-foreground"
+                            ? "bg-primary/15 text-primary shadow-[0_4px_20px_-4px_hsl(var(--primary)/0.35)] animate-nav-pop"
+                            : "bg-primary/[0.06] text-sidebar-foreground/75 hover:bg-primary/15 hover:text-primary hover:translate-x-1 hover:shadow-[0_4px_16px_-6px_hsl(var(--primary)/0.3)] active:scale-95"
                         }`
                       }
                     >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {open && <span className="text-sm font-medium">{item.title}</span>}
+                      {({ isActive }) => (
+                        <>
+                          {/* Hover shine sweep */}
+                          <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/50 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full" />
+
+                          <span className="relative z-10 grid place-items-center transition-transform duration-300 ease-out group-hover:scale-125 group-hover:-rotate-6">
+                            <item.icon className="h-4 w-4 shrink-0" />
+                          </span>
+
+                          {open && (
+                            <span className="relative z-10 text-sm font-medium truncate">{item.title}</span>
+                          )}
+
+                          {isActive && open && (
+                            <span className="relative z-10 ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-dot-pulse" />
+                          )}
+                        </>
+                      )}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
