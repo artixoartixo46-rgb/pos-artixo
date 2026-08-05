@@ -367,7 +367,7 @@ export default function Vendors() {
                 Scan Bill
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg glass-card border-border/50">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <FileText className="h-5 w-5" />
@@ -450,7 +450,7 @@ export default function Vendors() {
                 Add Vendor
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-2xl glass-card border-border/50">
               <DialogHeader>
                 <DialogTitle>{editingVendor ? "Edit Vendor" : "Add New Vendor"}</DialogTitle>
               </DialogHeader>
@@ -538,7 +538,7 @@ export default function Vendors() {
       />
 
       {/* Vendors Table */}
-      <Card className="p-6">
+      <Card className="glass-card glass-hover border-border/50 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Users className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-semibold">All Vendors</h2>
@@ -613,7 +613,7 @@ export default function Vendors() {
 
       {/* Vendor Ledger Dialog */}
       <Dialog open={ledgerDialogOpen} onOpenChange={setLedgerDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh]">
+        <DialogContent className="max-w-4xl max-h-[90vh] glass-card border-border/50">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BookOpen className="h-5 w-5" />
@@ -624,7 +624,7 @@ export default function Vendors() {
           {selectedVendor && (
             <div className="space-y-4">
               {/* Vendor Summary */}
-              <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
+              <div className="grid grid-cols-3 gap-4 p-4 glass-card border-border/50 rounded-lg">
                 <div>
                   <p className="text-sm text-muted-foreground">Opening Balance</p>
                   <p className="text-lg font-semibold">LKR {(selectedVendor.opening_balance || 0).toFixed(2)}</p>

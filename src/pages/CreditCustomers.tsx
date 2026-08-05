@@ -90,7 +90,7 @@ export default function CreditCustomers() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild><Button className="gap-2"><Plus className="h-4 w-4" />Add Customer</Button></DialogTrigger>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl glass-card border-border/50">
             <DialogHeader><DialogTitle>{editingCustomer ? "Edit" : "Add"} Customer</DialogTitle></DialogHeader>
             <form onSubmit={(e) => { e.preventDefault(); if (!formData.name.trim()) { toast.error("Name required"); return; } editingCustomer ? updateMutation.mutate({ id: editingCustomer.id, data: formData }) : createMutation.mutate(formData); }} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -128,7 +128,7 @@ export default function CreditCustomers() {
           </Button>
         ))}
       </div>
-      <Card className="p-6 glass">
+      <Card className="p-6 glass-card glass-hover border-border/50">
         {isLoading ? <p className="text-center py-8">Loading...</p> : !customers?.length ? <div className="text-center py-12"><UserCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" /><p className="text-muted-foreground">No customers found.</p></div> : (
           <Table>
             <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Phone</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>

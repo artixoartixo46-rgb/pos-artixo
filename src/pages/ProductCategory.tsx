@@ -125,7 +125,7 @@ export default function ProductCategory() {
               Add Category
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="glass-card border-border/50">
             <DialogHeader>
               <DialogTitle>{editingCategory ? "Edit Category" : "Add New Category"}</DialogTitle>
             </DialogHeader>
@@ -157,7 +157,7 @@ export default function ProductCategory() {
         </Dialog>
       </div>
 
-      <Card className="p-6 glass">
+      <Card className="p-6 glass-card glass-hover border-border/50">
         {isLoading ? (
           <p className="text-center text-muted-foreground py-8">Loading categories...</p>
         ) : !categories || categories.length === 0 ? (

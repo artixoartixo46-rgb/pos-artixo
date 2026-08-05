@@ -144,7 +144,7 @@ export default function SettingsPage() {
         <p className="text-muted-foreground mt-2">Configure your POS system</p>
       </div>
 
-      <Card className="p-6 glass max-w-3xl">
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
         <div className="flex items-center gap-2 mb-6">
           <Settings className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-semibold">Business Information</h2>
@@ -229,7 +229,7 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card className="p-6 glass max-w-3xl">
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
         <div className="flex items-center gap-2 mb-2">
           <Printer className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-semibold">Receipt Printer</h2>
@@ -248,7 +248,7 @@ export default function SettingsPage() {
           </div>
         ) : (
           <div className="space-y-5">
-            <div className="flex items-center justify-between p-3 rounded-md border border-border/50">
+            <div className="flex items-center justify-between p-3 rounded-md glass-card border-border/50">
               <div className="flex items-center gap-2">
                 <Usb className="h-4 w-4 text-muted-foreground" />
                 <div>
@@ -302,7 +302,7 @@ export default function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center justify-between border border-border/50 rounded-md px-3 mt-6">
+              <div className="flex items-center justify-between glass-card border-border/50 rounded-md px-3 mt-6">
                 <Label htmlFor="auto-direct-print" className="text-sm cursor-pointer">
                   Auto-print directly after each sale
                 </Label>

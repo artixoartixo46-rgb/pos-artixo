@@ -75,7 +75,7 @@ export default function ChatWidget() {
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end">
       {open && (
-        <div className="mb-3 flex h-[520px] w-[360px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-2xl">
+        <div className="glass-card mb-3 flex h-[520px] w-[360px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border-border/50 shadow-2xl">
           {/* Header */}
           <div className="flex items-center justify-between gap-2 border-b border-border/50 bg-gradient-to-r from-primary via-accent to-secondary px-4 py-3">
             <div className="flex items-center gap-2 text-primary-foreground">

@@ -547,7 +547,7 @@ export default function ChequePrint() {
         </TabsList>
 
         <TabsContent value="new">
-          <Card>
+          <Card className="glass-card glass-hover border-border/50">
             <CardHeader>
               <CardTitle>Create New Cheque</CardTitle>
             </CardHeader>
@@ -667,12 +667,12 @@ export default function ChequePrint() {
         </TabsContent>
 
         <TabsContent value="history">
-          <Card>
+          <Card className="glass-card glass-hover border-border/50">
             <CardHeader>
               <CardTitle>Cheque History</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              <div className="glass-card border-border/50 rounded-md overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -732,12 +732,12 @@ export default function ChequePrint() {
         </TabsContent>
 
         <TabsContent value="log">
-          <Card>
+          <Card className="glass-card glass-hover border-border/50">
             <CardHeader>
               <CardTitle>Print History Log</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              <div className="glass-card border-border/50 rounded-md overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -774,7 +774,7 @@ export default function ChequePrint() {
         </TabsContent>
 
         <TabsContent value="calibration">
-          <Card>
+          <Card className="glass-card glass-hover border-border/50">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5" />
@@ -782,7 +782,7 @@ export default function ChequePrint() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="bg-muted/50 rounded-lg p-4 text-sm">
+              <div className="glass-card border-border/50 rounded-lg p-4 text-sm">
                 <p className="font-medium mb-2">How to Calibrate:</p>
                 <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
                   <li>Enable Test Mode below</li>
@@ -827,7 +827,7 @@ export default function ChequePrint() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center justify-between p-4 glass-card border-border/50 rounded-lg">
                 <div className="space-y-1">
                   <Label htmlFor="testMode" className="flex items-center gap-2">
                     <TestTube className="h-4 w-4" />
@@ -890,7 +890,7 @@ export default function ChequePrint() {
 
       {/* Cheque Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl glass-card border-border/50">
           <DialogHeader>
             <DialogTitle>Cheque Preview - {selectedCheque?.cheque_number}</DialogTitle>
           </DialogHeader>
@@ -957,7 +957,7 @@ export default function ChequePrint() {
                 </div>
               </div>
               
-              <div className="bg-muted/50 rounded-lg p-4 text-sm">
+              <div className="glass-card border-border/50 rounded-lg p-4 text-sm">
                 <p className="font-medium mb-2">Print Instructions:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                   <li>Use manual paper feed on your printer</li>

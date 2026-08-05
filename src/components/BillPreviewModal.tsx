@@ -89,7 +89,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
-      <DialogContent className="max-w-4xl max-h-[95vh] p-0 gap-0 bg-background border-border">
+      <DialogContent className="max-w-4xl max-h-[95vh] p-0 gap-0 glass-card border-border/50">
         <DialogHeader className="p-6 pb-4 border-b border-border">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Receipt className="h-5 w-5 text-primary" />
@@ -117,7 +117,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     value={editedData.vendor_name}
                     onChange={(e) => updateField("vendor_name", e.target.value)}
                     placeholder="Vendor name"
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
 
@@ -131,7 +131,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     value={editedData.vendor_phone}
                     onChange={(e) => updateField("vendor_phone", e.target.value)}
                     placeholder="Phone number"
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
 
@@ -146,7 +146,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     value={editedData.vendor_email}
                     onChange={(e) => updateField("vendor_email", e.target.value)}
                     placeholder="Email address"
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
 
@@ -160,7 +160,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     value={editedData.gst_vat_number}
                     onChange={(e) => updateField("gst_vat_number", e.target.value)}
                     placeholder="Tax registration number"
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
 
@@ -175,7 +175,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     onChange={(e) => updateField("vendor_address", e.target.value)}
                     placeholder="Vendor address"
                     rows={2}
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
               </div>
@@ -201,7 +201,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     value={editedData.invoice_number}
                     onChange={(e) => updateField("invoice_number", e.target.value)}
                     placeholder="Invoice number"
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
 
@@ -215,7 +215,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                     type="date"
                     value={editedData.bill_date}
                     onChange={(e) => updateField("bill_date", e.target.value)}
-                    className="bg-muted/50"
+                    className="glass-input"
                   />
                 </div>
               </div>
@@ -233,10 +233,10 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                 <Badge variant="secondary">{editedData.items.length} items</Badge>
               </div>
               
-              <div className="border rounded-lg overflow-hidden">
+              <div className="glass-card border-border/50 rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-muted/50">
+                    <TableRow className="bg-white/10 hover:bg-white/10">
                       <TableHead className="w-[40%]">Product Name</TableHead>
                       <TableHead className="text-center w-[12%]">Qty</TableHead>
                       <TableHead className="text-right w-[16%]">Unit Price</TableHead>
@@ -251,7 +251,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                           <Input
                             value={item.product_name}
                             onChange={(e) => updateItem(index, "product_name", e.target.value)}
-                            className="h-8 bg-transparent border-0 focus:bg-muted/50"
+                            className="h-8 bg-transparent border-0 focus:bg-white/10 focus:ring-1 focus:ring-primary/30"
                           />
                         </TableCell>
                         <TableCell>
@@ -259,7 +259,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                             type="number"
                             value={item.quantity}
                             onChange={(e) => updateItem(index, "quantity", Number(e.target.value))}
-                            className="h-8 text-center bg-transparent border-0 focus:bg-muted/50"
+                            className="h-8 text-center bg-transparent border-0 focus:bg-white/10 focus:ring-1 focus:ring-primary/30"
                           />
                         </TableCell>
                         <TableCell>
@@ -268,7 +268,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                             step="0.01"
                             value={item.unit_price}
                             onChange={(e) => updateItem(index, "unit_price", Number(e.target.value))}
-                            className="h-8 text-right bg-transparent border-0 focus:bg-muted/50"
+                            className="h-8 text-right bg-transparent border-0 focus:bg-white/10 focus:ring-1 focus:ring-primary/30"
                           />
                         </TableCell>
                         <TableCell>
@@ -277,7 +277,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                             step="0.01"
                             value={item.tax}
                             onChange={(e) => updateItem(index, "tax", Number(e.target.value))}
-                            className="h-8 text-right bg-transparent border-0 focus:bg-muted/50"
+                            className="h-8 text-right bg-transparent border-0 focus:bg-white/10 focus:ring-1 focus:ring-primary/30"
                           />
                         </TableCell>
                         <TableCell>
@@ -286,7 +286,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
                             step="0.01"
                             value={item.total}
                             onChange={(e) => updateItem(index, "total", Number(e.target.value))}
-                            className="h-8 text-right bg-transparent border-0 focus:bg-muted/50 font-medium"
+                            className="h-8 text-right bg-transparent border-0 focus:bg-white/10 focus:ring-1 focus:ring-primary/30 font-medium"
                           />
                         </TableCell>
                       </TableRow>
@@ -309,7 +309,7 @@ export function BillPreviewModal({ open, onClose, extractedData, onSave, isSavin
             <div className="space-y-4">
               <h3 className="text-lg font-semibold">Summary</h3>
               
-              <div className="bg-muted/30 rounded-lg p-4 space-y-3">
+              <div className="glass-card border-border/50 rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Subtotal</span>
                   <div className="flex items-center gap-2">
