@@ -22,7 +22,9 @@ import {
   getSavedPrinterInfo,
   isAutoDirectPrintEnabled,
   printReceiptDirect,
+  getPaperWidth,
 } from "@/lib/thermalPrinter";
+import artixoLogo from "@/assets/artixo-logo.png";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import {
   getCachedPriceTiers,
@@ -823,12 +825,21 @@ export default function POSTerminal() {
     const dateStr = now.toLocaleDateString('en-GB');
     const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
+    const widthMm = getPaperWidth(); // 58 or 80
+    const logoUrl = artixoLogo.startsWith('http') ? artixoLogo : `${window.location.origin}${artixoLogo}`;
+    const businessName = shopSettings?.business_name || 'Artixo POS';
+    const businessAddress = shopSettings?.address || '';
+    const businessPhone = shopSettings?.phone || '';
+
+    const formatQty = (item: CartItem) =>
+      item.is_weight_based ? item.quantity.toFixed(3) : String(item.quantity);
+
     const itemsHTML = saleData.items.map(item => `
-      <div style="margin-bottom: 4px;">
-        <div style="font-size: 11px;">${item.name}</div>
-        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #333;">
-          <span>${item.quantity} x ${(item.price ?? 0).toFixed(2)}</span>
-          <span>${((item.price ?? 0) * item.quantity).toFixed(2)}</span>
+      <div class="item">
+        <div class="item-name">${item.name}</div>
+        <div class="item-row">
+          <span class="item-qty">${formatQty(item)}${item.unit_label ? ` ${item.unit_label}` : ''} &times; ${(item.price ?? 0).toFixed(2)}</span>
+          <span class="item-amt">Rs. ${((item.price ?? 0) * item.quantity).toFixed(2)}</span>
         </div>
       </div>
     `).join('');
@@ -840,109 +851,125 @@ export default function POSTerminal() {
           <title>Receipt - ${saleData.invoiceNumber}</title>
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            @page { size: 80mm auto; margin: 0; }
+            @page { size: ${widthMm}mm auto; margin: 0; }
             @media print {
-              body { width: 80mm; margin: 0; padding: 2mm; }
+              body { width: ${widthMm}mm; margin: 0; padding: 2mm; }
             }
             body {
               font-family: 'Consolas', 'Courier New', monospace;
               font-size: 11px;
-              width: 80mm;
+              width: ${widthMm}mm;
               margin: 0 auto;
               padding: 3mm;
               background: #fff;
               color: #000;
-              line-height: 1.4;
+              line-height: 1.45;
             }
-            .header { text-align: center; margin-bottom: 10px; }
-            .header h1 { font-size: 16px; font-weight: bold; margin-bottom: 2px; }
+            .header { text-align: center; margin-bottom: 8px; }
+            .header img { width: 16mm; height: auto; margin: 0 auto 3px auto; display: block; }
+            .header h1 { font-size: 15px; font-weight: 800; letter-spacing: 0.3px; margin-bottom: 2px; }
+            .header .tagline { font-size: 8px; color: #555; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 3px; }
             .header p { font-size: 9px; color: #333; }
-            .divider { border-top: 1px dashed #000; margin: 8px 0; }
-            .info-row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10px; }
-            .items { margin: 8px 0; }
-            .totals .row { display: flex; justify-content: space-between; margin: 3px 0; }
-            .totals .grand { font-size: 14px; font-weight: bold; border-top: 1px solid #000; padding-top: 5px; margin-top: 5px; }
+            .divider { border-top: 1.5px dashed #000; margin: 7px 0; }
+            .divider.light { border-top: 1px dashed #999; }
+            .info-row { display: flex; justify-content: space-between; margin: 2.5px 0; font-size: 10px; }
+            .info-row .val { font-weight: 700; }
+            .section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #444; margin-bottom: 4px; }
+            .items-head { display: flex; justify-content: space-between; font-size: 9px; font-weight: 700; text-transform: uppercase; color: #444; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 5px; }
+            .items { margin: 6px 0; }
+            .item { margin-bottom: 5px; }
+            .item-name { font-size: 11px; font-weight: 600; }
+            .item-row { display: flex; justify-content: space-between; font-size: 10px; color: #333; margin-top: 1px; }
+            .item-amt { font-weight: 700; color: #000; }
+            .totals .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10.5px; }
+            .totals .discount { color: #b00020; }
+            .totals .grand { font-size: 15px; font-weight: 800; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 5px 0; margin-top: 5px; }
             .payment { margin: 8px 0; }
-            .footer { text-align: center; margin-top: 12px; font-size: 10px; }
-            .footer .thanks { font-weight: bold; font-size: 12px; margin-bottom: 3px; }
+            .payment .due { font-weight: 800; font-size: 12px; }
+            .footer { text-align: center; margin-top: 14px; font-size: 10px; }
+            .footer .thanks { font-weight: 800; font-size: 13px; margin-bottom: 3px; }
+            .footer .support { font-size: 9px; color: #333; margin-top: 4px; }
+            .footer .powered { font-size: 8px; color: #888; margin-top: 6px; letter-spacing: 0.4px; }
           </style>
         </head>
         <body>
           <div class="header">
-            <h1>JD POS</h1>
-            <p>Point of Sale Receipt</p>
+            <img src="${logoUrl}" alt="Artixo" />
+            <h1>${businessName}</h1>
+            <div class="tagline">Wholesale Grocery POS</div>
+            ${businessAddress ? `<p>${businessAddress}</p>` : ''}
+            ${businessPhone ? `<p>${businessPhone}</p>` : ''}
           </div>
-          
+
           <div class="divider"></div>
-          
+
           <div class="info">
             <div class="info-row">
-              <span>Invoice:</span>
-              <span><strong>${saleData.invoiceNumber}</strong></span>
+              <span>Invoice</span>
+              <span class="val">${saleData.invoiceNumber}</span>
             </div>
             <div class="info-row">
-              <span>Date:</span>
-              <span>${dateStr}</span>
-            </div>
-            <div class="info-row">
-              <span>Time:</span>
-              <span>${timeStr}</span>
+              <span>Date</span>
+              <span>${dateStr}&nbsp;&nbsp;${timeStr}</span>
             </div>
             ${saleData.customerName ? `
             <div class="info-row">
-              <span>Customer:</span>
-              <span>${saleData.customerName}</span>
+              <span>Customer</span>
+              <span class="val">${saleData.customerName}</span>
             </div>
             ` : ''}
           </div>
-          
+
           <div class="divider"></div>
-          
+
           <div class="items">
+            <div class="items-head">
+              <span>Item</span>
+              <span>Amount</span>
+            </div>
             ${itemsHTML}
           </div>
-          
+
           <div class="divider"></div>
-          
+
           <div class="totals">
             <div class="row">
-              <span>Subtotal:</span>
+              <span>Subtotal</span>
               <span>Rs. ${saleData.subtotal.toFixed(2)}</span>
             </div>
             ${saleData.discountAmount > 0 ? `
-            <div class="row">
-              <span>Discount:</span>
+            <div class="row discount">
+              <span>Discount</span>
               <span>- Rs. ${saleData.discountAmount.toFixed(2)}</span>
             </div>
             ` : ''}
             <div class="row grand">
-              <span>TOTAL:</span>
+              <span>TOTAL</span>
               <span>Rs. ${saleData.total.toFixed(2)}</span>
             </div>
           </div>
-          
-          <div class="divider"></div>
-          
+
           <div class="payment">
             <div class="info-row">
-              <span>Paid By:</span>
-              <span>${saleData.paymentMethod}</span>
+              <span>Paid By</span>
+              <span class="val">${saleData.paymentMethod}</span>
             </div>
             <div class="info-row">
-              <span>Paid Amount:</span>
-              <span>Rs. ${saleData.paidAmount.toFixed(2)}</span>
+              <span>Paid Amount</span>
+              <span class="val">Rs. ${saleData.paidAmount.toFixed(2)}</span>
             </div>
-            <div class="info-row">
-              <span>${saleData.balance >= 0 ? 'Change:' : 'Balance Due:'}</span>
-              <span>Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
+            <div class="info-row due">
+              <span>${saleData.balance >= 0 ? 'Change' : 'Balance Due'}</span>
+              <span class="val">Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
             </div>
           </div>
-          
-          <div class="divider"></div>
-          
+
+          <div class="divider light"></div>
+
           <div class="footer">
-            <div class="thanks">Thank you! Visit Again</div>
-            <p>Powered by Artixo</p>
+            <div class="thanks">Thank You! Please Visit Again</div>
+            ${businessPhone ? `<div class="support">Need help? Call ${businessPhone}</div>` : ''}
+            <div class="powered">POWERED BY ARTIXO POS</div>
           </div>
         </body>
       </html>
