@@ -12,7 +12,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
 
@@ -64,6 +64,16 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-1.5 md:gap-2">
+        {/* Support contact number */}
+        <a
+          href="tel:+94754120403"
+          className="hidden md:flex items-center gap-1.5 px-3 h-9 rounded-full bg-white/15 hover:bg-white/25 transition-colors text-sm font-medium"
+          title="Call support"
+        >
+          <Phone className="h-3.5 w-3.5" />
+          +94 75 412 0403
+        </a>
+
         {/* Quick add */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
