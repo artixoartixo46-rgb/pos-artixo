@@ -1,4 +1,4 @@
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Settings, Users, FolderOpen, TruckIcon, Archive, UserCheck, QrCode, History, ClipboardList, ClipboardCheck, Undo2 } from "lucide-react";
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Settings, Users, FolderOpen, TruckIcon, Archive, UserCheck, QrCode, History, ClipboardList, ClipboardCheck, Undo2, Sparkles } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { NavLink } from "react-router-dom";
 import {
@@ -28,6 +28,7 @@ const items = [
   { title: "Returns & Refunds", url: "/returns", icon: Undo2 },
   { title: "QR Code Print", url: "/barcode-print", icon: QrCode },
   { title: "Reports", url: "/reports", icon: BarChart3 },
+  { title: "Demand Forecast", url: "/demand-forecast", icon: Sparkles },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

@@ -23,6 +23,7 @@ import BarcodePrint from "./pages/BarcodePrint";
 import CreditPurchaseHistory from "./pages/CreditPurchaseHistory";
 import VendorCheckIn from "./pages/VendorCheckIn";
 import Catalog from "./pages/Catalog";
+import DemandForecast from "./pages/DemandForecast";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,6 +53,7 @@ const App = () => {
           <Route path="/returns" element={<Layout><Returns /></Layout>} />
           <Route path="/barcode-print" element={<Layout><BarcodePrint /></Layout>} />
           <Route path="/reports" element={<Layout><Reports /></Layout>} />
+          <Route path="/demand-forecast" element={<Layout><DemandForecast /></Layout>} />
           <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />
           {/* Standalone, no Layout/sidebar - a vendor's own phone lands here after scanning
               the receiving-counter QR, no login involved. */}
