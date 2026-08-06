@@ -173,13 +173,14 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
 
   const now = new Date();
 
+  // Whole receipt prints in bold (ESC/POS "emphasized" mode) - thermal print heads fade
+  // fast on regular-weight text, bold roughly doubles the dot strikes so it stays legible.
   init();
-  align("center");
   bold(true);
+  align("center");
   doubleHeight(true);
   push(truncate(data.businessName || "Artixo POS", Math.floor(width / 2)) + "\n");
   doubleHeight(false);
-  bold(false);
   if (data.businessAddress) center(data.businessAddress);
   if (data.businessPhone) center(data.businessPhone);
 
@@ -200,9 +201,9 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
 
   twoCol("Subtotal:", `Rs. ${data.subtotal.toFixed(2)}`);
   if (data.discountAmount > 0) twoCol("Discount:", `- Rs. ${data.discountAmount.toFixed(2)}`);
-  bold(true);
+  doubleHeight(true);
   twoCol("TOTAL:", `Rs. ${data.total.toFixed(2)}`);
-  bold(false);
+  doubleHeight(false);
   hr();
 
   twoCol("Paid By:", data.paymentMethod);
@@ -211,11 +212,10 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   hr();
 
   align("center");
-  bold(true);
   push("Thank you! Visit Again\n");
-  bold(false);
   push("Support: +94 75 412 0403\n");
   push("Powered by Artixo\n");
+  bold(false);
   feed(4);
 
   // Full cut
