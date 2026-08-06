@@ -17,6 +17,7 @@ import ProductReceiving from "./pages/ProductReceiving";
 import OrderManagement from "./pages/OrderManagement";
 import ProductInventory from "./pages/ProductInventory";
 import StockTake from "./pages/StockTake";
+import Returns from "./pages/Returns";
 import CreditCustomers from "./pages/CreditCustomers";
 import BarcodePrint from "./pages/BarcodePrint";
 import CreditPurchaseHistory from "./pages/CreditPurchaseHistory";
@@ -46,6 +47,7 @@ const App = () => {
           <Route path="/product-receiving" element={<Layout><ProductReceiving /></Layout>} />
           <Route path="/product-inventory" element={<Layout><ProductInventory /></Layout>} />
           <Route path="/stock-take" element={<Layout><StockTake /></Layout>} />
+          <Route path="/returns" element={<Layout><Returns /></Layout>} />
           <Route path="/barcode-print" element={<Layout><BarcodePrint /></Layout>} />
           <Route path="/reports" element={<Layout><Reports /></Layout>} />
           <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />

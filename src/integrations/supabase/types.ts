@@ -663,6 +663,118 @@ export type Database = {
           },
         ]
       }
+      returns: {
+        Row: {
+          created_at: string
+          customer_id: string | null
+          customer_name: string | null
+          id: string
+          invoice_number: string
+          reason: string
+          reason_note: string | null
+          refund_amount: number
+          refund_method: string
+          sale_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_id?: string | null
+          customer_name?: string | null
+          id?: string
+          invoice_number: string
+          reason: string
+          reason_note?: string | null
+          refund_amount?: number
+          refund_method: string
+          sale_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string | null
+          customer_name?: string | null
+          id?: string
+          invoice_number?: string
+          reason?: string
+          reason_note?: string | null
+          refund_amount?: number
+          refund_method?: string
+          sale_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "returns_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "credit_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "returns_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      return_items: {
+        Row: {
+          id: string
+          line_refund: number
+          product_id: string | null
+          product_name: string
+          quantity: number
+          restocked: boolean
+          return_id: string
+          sale_item_id: string | null
+          unit_price: number
+        }
+        Insert: {
+          id?: string
+          line_refund: number
+          product_id?: string | null
+          product_name: string
+          quantity: number
+          restocked?: boolean
+          return_id: string
+          sale_item_id?: string | null
+          unit_price: number
+        }
+        Update: {
+          id?: string
+          line_refund?: number
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+          restocked?: boolean
+          return_id?: string
+          sale_item_id?: string | null
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "return_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "return_items_return_id_fkey"
+            columns: ["return_id"]
+            isOneToOne: false
+            referencedRelation: "returns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "return_items_sale_item_id_fkey"
+            columns: ["sale_item_id"]
+            isOneToOne: false
+            referencedRelation: "sale_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       settings: {
         Row: {
           address: string | null
