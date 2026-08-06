@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate } from "lucide-react";
+import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import {
@@ -12,6 +12,14 @@ import {
   getFavoriteTemplateId,
   setFavoriteTemplateId,
   getTemplateById,
+  getTextScale,
+  saveTextScale,
+  getQrScale,
+  saveQrScale,
+  MIN_TEXT_SCALE,
+  MAX_TEXT_SCALE,
+  MIN_QR_SCALE,
+  MAX_QR_SCALE,
   LABEL_W,
   LABEL_H,
   COLS,
@@ -34,6 +42,8 @@ export default function BarcodePrint() {
   const [addingId, setAddingId] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(getFavoriteTemplateId());
   const [sampleQrUrl, setSampleQrUrl] = useState("");
+  const [textScale, setTextScale] = useState(getTextScale());
+  const [qrScale, setQrScale] = useState(getQrScale());
 
   // Generate a sample QR once, used for template preview cards when the queue is empty
   useEffect(() => {
@@ -50,7 +60,30 @@ export default function BarcodePrint() {
     toast.success(`"${tpl.name}" set as your favorite print template`);
   };
 
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+
+  const adjustTextScale = (delta: number) => {
+    const next = round1(Math.min(MAX_TEXT_SCALE, Math.max(MIN_TEXT_SCALE, textScale + delta)));
+    setTextScale(next);
+    saveTextScale(next);
+  };
+
+  const adjustQrScale = (delta: number) => {
+    const next = round1(Math.min(MAX_QR_SCALE, Math.max(MIN_QR_SCALE, qrScale + delta)));
+    setQrScale(next);
+    saveQrScale(next);
+  };
+
+  const resetScales = () => {
+    setTextScale(1);
+    setQrScale(1);
+    saveTextScale(1);
+    saveQrScale(1);
+    toast.success("Label size reset to default");
+  };
+
   const allTemplateCss = QR_LABEL_TEMPLATES.map((t) => t.css).join("\n");
+  const scaleCss = `.qr-label-box { --qr-scale: ${qrScale}; --text-scale: ${textScale}; }`;
   const baseLabelCss = `.qr-label-box { width: ${LABEL_W}mm; height: ${LABEL_H}mm; box-sizing: border-box; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #fff; }`;
 
   const { data: products } = useQuery({
@@ -208,6 +241,7 @@ export default function BarcodePrint() {
     }
     ${baseLabelCss}
     ${allTemplateCss}
+    ${scaleCss}
   </style>
 </head>
 <body>${labelsHtml}</body>
@@ -236,7 +270,7 @@ export default function BarcodePrint() {
       </div>
 
       {/* Shared style block for all template previews (picker + live preview) */}
-      <style>{`${baseLabelCss}\n${allTemplateCss}`}</style>
+      <style>{`${baseLabelCss}\n${allTemplateCss}\n${scaleCss}`}</style>
 
       {/* Template Picker */}
       <Card className="glass-card border-border/50 p-6">
@@ -288,6 +322,81 @@ export default function BarcodePrint() {
               </button>
             );
           })}
+        </div>
+      </Card>
+
+      {/* Text / QR size customization — applies to whichever template is selected above,
+          in both the live preview and the actual print output */}
+      <Card className="glass-card border-border/50 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Customize Label Size</h2>
+          </div>
+          {(textScale !== 1 || qrScale !== 1) && (
+            <Button variant="ghost" size="sm" onClick={resetScales} className="text-xs gap-1 h-7">
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground -mt-2 mb-4">
+          Increase or decrease text size and QR code size — applies to every template and is remembered for next time.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex items-center justify-between p-3 glass-card border-border/30 rounded-xl">
+            <div>
+              <p className="text-sm font-medium">Text Size</p>
+              <p className="text-xs text-muted-foreground">{Math.round(textScale * 100)}%</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 glass"
+                onClick={() => adjustTextScale(-0.1)}
+                disabled={textScale <= MIN_TEXT_SCALE}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 glass"
+                onClick={() => adjustTextScale(0.1)}
+                disabled={textScale >= MAX_TEXT_SCALE}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-3 glass-card border-border/30 rounded-xl">
+            <div>
+              <p className="text-sm font-medium">QR Code Size</p>
+              <p className="text-xs text-muted-foreground">{Math.round(qrScale * 100)}%</p>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 glass"
+                onClick={() => adjustQrScale(-0.1)}
+                disabled={qrScale <= MIN_QR_SCALE}
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 glass"
+                onClick={() => adjustQrScale(0.1)}
+                disabled={qrScale >= MAX_QR_SCALE}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
         </div>
       </Card>
 
