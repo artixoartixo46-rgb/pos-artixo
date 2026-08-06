@@ -665,6 +665,40 @@ export default function POSTerminal() {
 
   // Auto-add to cart when a code is scanned - via camera QR, or a USB/Bluetooth barcode gun
   // (which behaves like a keyboard: it types the code into the focused field, then sends Enter).
+  // A customer built a list on the public /catalog page and is showing us its QR at the
+  // till - merge every item straight into the cart in one go instead of scanning one by one.
+  const handleCatalogListScan = async (items: { product_id: string; qty: number }[]) => {
+    const productIds = (items || []).map((i) => i.product_id).filter(Boolean);
+    if (productIds.length === 0) return;
+
+    const { data: matchedProducts, error } = await supabase.from("products").select("*").in("id", productIds);
+    if (error || !matchedProducts) {
+      toast({ title: "Error", description: "Failed to load the customer's list", variant: "destructive" });
+      return;
+    }
+
+    let addedCount = 0;
+    setCart((prevCart) => {
+      const nextCart = [...prevCart];
+      for (const item of items) {
+        const product = matchedProducts.find((p) => p.id === item.product_id);
+        if (!product) continue;
+        const lineKey = `${product.id}_unit`;
+        const existingIndex = nextCart.findIndex((c) => c.line_key === lineKey);
+        if (existingIndex >= 0) {
+          const newQty = nextCart[existingIndex].quantity + item.qty;
+          nextCart[existingIndex] = { ...nextCart[existingIndex], quantity: newQty, price: computeLinePrice(nextCart[existingIndex], newQty) };
+        } else {
+          nextCart.push(buildCartLine(product, "unit", item.qty));
+        }
+        addedCount++;
+      }
+      return nextCart;
+    });
+
+    toast({ title: "Customer's List Loaded!", description: `${addedCount} item(s) added to cart` });
+  };
+
   const handleQRScan = async (qrContent: string) => {
     if (!qrContent || qrContent === lastScannedQR) return;
 
@@ -677,6 +711,12 @@ export default function POSTerminal() {
         // Handle single-item QR (from our label printer): { type:"item", item_id:"1001", ... }
         if (parsed.type === "item" && parsed.item_id) {
           qrNumber = String(parsed.item_id);
+        } else if (parsed.type === "catalog_list" && Array.isArray(parsed.items)) {
+          // Customer's self-built list from the public catalog page
+          await handleCatalogListScan(parsed.items);
+          setLastScannedQR(qrContent);
+          setTimeout(() => setLastScannedQR(""), 500);
+          return;
         } else if (parsed.qr) {
           // Legacy format: { qr:"1001", name:"...", price:... }
           qrNumber = String(parsed.qr);

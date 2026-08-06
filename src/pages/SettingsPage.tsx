@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode } from "lucide-react";
 import { toast } from "sonner";
+import QRCodeLib from "qrcode";
 import {
   isWebUSBSupported,
   getSavedPrinterInfo,
@@ -133,6 +135,17 @@ export default function SettingsPage() {
     } finally {
       setTestPrinting(false);
     }
+  };
+
+  // ---- Customer catalog QR ----
+  const [catalogQrOpen, setCatalogQrOpen] = useState(false);
+  const [catalogQrDataUrl, setCatalogQrDataUrl] = useState("");
+
+  const openCatalogQr = async () => {
+    const url = `${window.location.origin}/catalog`;
+    const dataUrl = await QRCodeLib.toDataURL(url, { width: 400, margin: 1, errorCorrectionLevel: "M" });
+    setCatalogQrDataUrl(dataUrl);
+    setCatalogQrOpen(true);
   };
 
   return (
@@ -334,6 +347,41 @@ export default function SettingsPage() {
           </div>
         )}
       </Card>
+
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
+        <div className="flex items-center gap-2 mb-4">
+          <QrCode className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">Customer Catalog QR</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Print and post this at the counter or shelves. Customers scan it with their own phone to browse
+          products, prices and availability, build a list, then show it to the cashier to load into the bill —
+          no app or login needed on their end.
+        </p>
+        <Button variant="outline" className="glass gap-2" onClick={openCatalogQr}>
+          <QrCode className="h-4 w-4" />
+          Show Catalog QR
+        </Button>
+      </Card>
+
+      <Dialog open={catalogQrOpen} onOpenChange={setCatalogQrOpen}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-primary" />
+              Customer Catalog QR
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {catalogQrDataUrl && (
+              <img src={catalogQrDataUrl} alt="Customer catalog QR" className="w-56 h-56 rounded-lg border border-border/40 bg-white p-2" />
+            )}
+            <p className="text-sm text-muted-foreground text-center">
+              Print this and display it where customers can easily scan it.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
