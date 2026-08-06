@@ -11,9 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Truck, ChevronDown, Trash2, PackagePlus, Loader2 } from "lucide-react";
+import { Plus, Search, Truck, ChevronDown, Trash2, PackagePlus, Loader2, QrCode, Inbox, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import QRCode from "qrcode";
 
 interface LineItem {
   key: string;
@@ -41,6 +42,9 @@ export default function ProductReceiving() {
   const [pendingProduct, setPendingProduct] = useState<{ id: string; name: string; unit_label: string; cost: number | null } | null>(null);
   const [pendingQty, setPendingQty] = useState("");
   const [pendingCost, setPendingCost] = useState("");
+  const [activeCheckinId, setActiveCheckinId] = useState<string | null>(null);
+  const [checkinQrOpen, setCheckinQrOpen] = useState(false);
+  const [checkinQrDataUrl, setCheckinQrDataUrl] = useState("");
 
   const { data: vendors } = useQuery({
     queryKey: ["vendors-for-receiving"],
@@ -87,6 +91,19 @@ export default function ProductReceiving() {
     },
   });
 
+  const { data: pendingCheckins, isLoading: checkinsLoading } = useQuery({
+    queryKey: ["vendor-checkins-pending"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("vendor_checkins")
+        .select("id, vendor_id, vendor_name, notes, checked_in_at, vendor_checkin_items(id, product_id, product_name, quantity)")
+        .eq("status", "pending")
+        .order("checked_in_at", { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+  });
+
   const selectedVendor = vendors?.find((v) => v.id === vendorId);
 
   const filteredHistory = (receivingHistory || []).filter((r) => {
@@ -107,6 +124,55 @@ export default function ProductReceiving() {
     setPendingQty("");
     setPendingCost("");
     setProductSearchTerm("");
+    setActiveCheckinId(null);
+  };
+
+  // Pulls a vendor's self-reported QR check-in into the normal receiving form so staff can
+  // verify quantities/cost against the physical delivery before anything touches stock.
+  const loadCheckinIntoForm = async (checkin: any) => {
+    const allItems = checkin.vendor_checkin_items || [];
+    const catalogItems = allItems.filter((i: any) => i.product_id);
+    const freeTextItems = allItems.filter((i: any) => !i.product_id);
+
+    let costByProduct = new Map<string, number>();
+    let unitByProduct = new Map<string, string>();
+    const productIds = catalogItems.map((i: any) => i.product_id);
+    if (productIds.length > 0) {
+      const { data } = await supabase.from("products").select("id, cost, unit_label").in("id", productIds);
+      for (const p of data || []) {
+        costByProduct.set(p.id, Number(p.cost) || 0);
+        unitByProduct.set(p.id, p.unit_label || "pcs");
+      }
+    }
+
+    setVendorId(checkin.vendor_id || "");
+    setReceivedDate(format(new Date(checkin.checked_in_at), "yyyy-MM-dd"));
+    setActiveCheckinId(checkin.id);
+    setLineItems(
+      catalogItems.map((i: any) => ({
+        key: `${i.id}-${Date.now()}`,
+        product_id: i.product_id,
+        product_name: i.product_name,
+        unit_label: unitByProduct.get(i.product_id) || "pcs",
+        quantity: String(i.quantity),
+        cost_price: String(costByProduct.get(i.product_id) ?? ""),
+      }))
+    );
+
+    if (freeTextItems.length > 0) {
+      toast.info(
+        `${checkin.vendor_name || "Vendor"} also mentioned: ${freeTextItems.map((i: any) => i.product_name).join(", ")} — not in your catalog, add as a new product if needed.`
+      );
+    }
+
+    setIsDialogOpen(true);
+  };
+
+  const openCheckinQr = async () => {
+    const url = `${window.location.origin}/vendor-checkin`;
+    const dataUrl = await QRCode.toDataURL(url, { width: 400, margin: 1, errorCorrectionLevel: "M" });
+    setCheckinQrDataUrl(dataUrl);
+    setCheckinQrOpen(true);
   };
 
   const handleDialogChange = (open: boolean) => {
@@ -190,15 +256,34 @@ export default function ProductReceiving() {
           .eq("id", li.product_id);
         if (costError) throw costError;
       }
+
+      if (activeCheckinId) {
+        const { error: checkinError } = await supabase
+          .from("vendor_checkins")
+          .update({ status: "confirmed", confirmed_at: new Date().toISOString() })
+          .eq("id", activeCheckinId);
+        if (checkinError) throw checkinError;
+      }
     },
     onSuccess: () => {
       toast.success("Stock received and inventory updated");
       queryClient.invalidateQueries({ queryKey: ["product-receiving"] });
       queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-checkins-pending"] });
       handleDialogChange(false);
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to save receiving");
+    },
+  });
+
+  const dismissCheckinMutation = useMutation({
+    mutationFn: async (checkinId: string) => {
+      const { error } = await supabase.from("vendor_checkins").update({ status: "dismissed" }).eq("id", checkinId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-checkins-pending"] });
     },
   });
 
@@ -211,11 +296,56 @@ export default function ProductReceiving() {
           </h1>
           <p className="text-muted-foreground mt-2">Receive and process incoming inventory</p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-white" onClick={() => handleDialogChange(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Receiving
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="glass" onClick={openCheckinQr}>
+            <QrCode className="h-4 w-4 mr-2" />
+            Vendor Check-in QR
+          </Button>
+          <Button className="bg-primary hover:bg-primary/90 text-white" onClick={() => handleDialogChange(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Receiving
+          </Button>
+        </div>
       </div>
+
+      {/* Pending vendor QR check-ins - self-reported by vendors, waiting for staff to verify
+          the physical delivery and confirm it into actual stock */}
+      {!checkinsLoading && pendingCheckins && pendingCheckins.length > 0 && (
+        <Card className="glass-card border-border/50 border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Inbox className="h-5 w-5 text-amber-500" />
+              Pending Vendor Check-ins
+              <span className="text-sm font-normal text-muted-foreground">
+                {pendingCheckins.length} waiting for review
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {pendingCheckins.map((c: any) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 p-3 glass-card border-border/30 rounded-xl">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{c.vendor_name || "Unknown vendor"}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Clock className="h-3 w-3" />
+                    {format(new Date(c.checked_in_at), "dd MMM yyyy, HH:mm")} ·{" "}
+                    {(c.vendor_checkin_items || []).length} item{(c.vendor_checkin_items || []).length === 1 ? "" : "s"}
+                  </p>
+                  {c.notes && <p className="text-xs text-muted-foreground mt-0.5 italic">"{c.notes}"</p>}
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Button size="sm" variant="ghost" onClick={() => dismissCheckinMutation.mutate(c.id)}>
+                    Dismiss
+                  </Button>
+                  <Button size="sm" onClick={() => loadCheckinIntoForm(c)}>
+                    Review &amp; Load
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="glass-card border-border/50">
         <CardHeader>
@@ -482,6 +612,28 @@ export default function ProductReceiving() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vendor check-in QR - print/display this at the receiving counter. Any vendor's
+          delivery person scans it with their own phone to self-report a delivery. */}
+      <Dialog open={checkinQrOpen} onOpenChange={setCheckinQrOpen}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-primary" />
+              Vendor Check-in QR
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {checkinQrDataUrl && (
+              <img src={checkinQrDataUrl} alt="Vendor check-in QR" className="w-56 h-56 rounded-lg border border-border/40 bg-white p-2" />
+            )}
+            <p className="text-sm text-muted-foreground text-center">
+              Print this and stick it at your receiving counter. Any vendor's delivery person can scan it with their
+              own phone to log what they're dropping off - no app or login needed on their end.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -21,6 +21,7 @@ import Returns from "./pages/Returns";
 import CreditCustomers from "./pages/CreditCustomers";
 import BarcodePrint from "./pages/BarcodePrint";
 import CreditPurchaseHistory from "./pages/CreditPurchaseHistory";
+import VendorCheckIn from "./pages/VendorCheckIn";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +52,9 @@ const App = () => {
           <Route path="/barcode-print" element={<Layout><BarcodePrint /></Layout>} />
           <Route path="/reports" element={<Layout><Reports /></Layout>} />
           <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />
+          {/* Standalone, no Layout/sidebar - a vendor's own phone lands here after scanning
+              the receiving-counter QR, no login involved. */}
+          <Route path="/vendor-checkin" element={<VendorCheckIn />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

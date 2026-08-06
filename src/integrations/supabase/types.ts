@@ -775,6 +775,86 @@ export type Database = {
           },
         ]
       }
+      vendor_checkins: {
+        Row: {
+          checked_in_at: string
+          confirmed_at: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          status: string
+          vendor_id: string | null
+          vendor_name: string | null
+        }
+        Insert: {
+          checked_in_at?: string
+          confirmed_at?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          vendor_id?: string | null
+          vendor_name?: string | null
+        }
+        Update: {
+          checked_in_at?: string
+          confirmed_at?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          vendor_id?: string | null
+          vendor_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_checkins_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_checkin_items: {
+        Row: {
+          checkin_id: string
+          id: string
+          product_id: string | null
+          product_name: string
+          quantity: number
+        }
+        Insert: {
+          checkin_id: string
+          id?: string
+          product_id?: string | null
+          product_name: string
+          quantity: number
+        }
+        Update: {
+          checkin_id?: string
+          id?: string
+          product_id?: string | null
+          product_name?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_checkin_items_checkin_id_fkey"
+            columns: ["checkin_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_checkins"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_checkin_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       settings: {
         Row: {
           address: string | null
