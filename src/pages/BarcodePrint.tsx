@@ -80,11 +80,12 @@ export default function BarcodePrint() {
     return QRCode.toDataURL(qrData, { width: 400, margin: 1, errorCorrectionLevel: "H" });
   };
 
-  // Auto-truncate long names to fit sticker width
-  const fitName = (name: string, maxChars: number) => {
-    if (name.length <= maxChars) return name;
-    return name.substring(0, maxChars - 2) + "..";
-  };
+  // Every template's name/line element already has white-space:nowrap + overflow:hidden +
+  // text-overflow:ellipsis in CSS, which measures real font metrics at render/print time -
+  // far more accurate than guessing a character-count cutoff. So just pass the name through
+  // untouched and let CSS do the fitting (previously this hard-cut names way too early,
+  // e.g. "Samsung Galaxy A54" -> "Samsung Galaxy..", wasting space that was actually available).
+  const fitName = (name: string) => name;
 
   const addToQueue = async (product: any) => {
     const existing = printQueue.find((item) => item.id === product.id);
@@ -182,8 +183,9 @@ export default function BarcodePrint() {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
       width: ${PAGE_W}mm;
-      margin: 0;
-      padding: 0;
+      height: ${LABEL_H}mm;
+      margin: 0 !important;
+      padding: 0 !important;
       font-family: Arial, Helvetica, sans-serif;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -193,6 +195,7 @@ export default function BarcodePrint() {
       grid-template-columns: repeat(${COLS}, ${LABEL_W}mm);
       grid-auto-rows: ${LABEL_H}mm;
       gap: 0;
+      overflow: hidden;
     }
     .qr-label-box {
       page-break-inside: avoid;
@@ -448,6 +451,21 @@ export default function BarcodePrint() {
           <p className="text-xs text-muted-foreground text-center mt-2">
             Universal thermal sticker roll · 2 labels side-by-side · double-sided
           </p>
+
+          <div className="mt-3 p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-xs leading-relaxed">
+            <p className="font-semibold text-amber-700 dark:text-amber-400 mb-1">
+              First time printing labels? Set this once in the print window:
+            </p>
+            <p className="text-muted-foreground">
+              Click <span className="font-medium text-foreground">"More settings"</span> →
+              set <span className="font-medium text-foreground">Margins: None</span>, turn{" "}
+              <span className="font-medium text-foreground">Headers and footers: OFF</span>, and{" "}
+              <span className="font-medium text-foreground">Scale: Default (100%)</span>.
+              Chrome remembers this after the first print, so labels come out perfectly aligned
+              from then on — without it, Chrome reserves blank space at the top for a page title/date
+              that pushes your label content down.
+            </p>
+          </div>
         </Card>
       </div>
     </div>
