@@ -18,6 +18,7 @@ import {
   Receipt,
   ClipboardList,
   Phone,
+  PackageX,
 } from "lucide-react";
 import { computeReorderSuggestions, groupSuggestionsByVendor, type ReorderTrend } from "@/lib/reorderSuggestions";
 import {
@@ -97,6 +98,7 @@ function TrendBadge({ trend, trendPct }: { trend: ReorderTrend; trendPct: number
 export default function Reports() {
   const [period, setPeriod] = useState<Period>("week");
   const periodStart = getPeriodStart(period);
+  const [deadStockDays, setDeadStockDays] = useState(60);
 
   const { data: sales, isLoading: salesLoading } = useQuery({
     queryKey: ["reports-sales", period],
@@ -132,9 +134,22 @@ export default function Reports() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, category, stock_quantity, min_stock_level, unit_label, case_size");
+        .select("id, name, category, stock_quantity, min_stock_level, unit_label, case_size, cost, price");
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  // Dead stock needs the *full* sales history regardless of the period filter above - a
+  // product that hasn't sold in 90 days is still dead stock even if you're viewing "Today".
+  const { data: allSaleItemsWithDate } = useQuery({
+    queryKey: ["reports-dead-stock-sale-history"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sale_items")
+        .select("product_id, sales(sale_date)");
+      if (error) throw error;
+      return (data || []) as any[];
     },
   });
 
@@ -227,6 +242,39 @@ export default function Reports() {
         .filter((p: any) => Number(p.stock_quantity ?? 0) <= Number(p.min_stock_level ?? 10))
         .sort((a: any, b: any) => Number(a.stock_quantity ?? 0) - Number(b.stock_quantity ?? 0)),
     [products]
+  );
+
+  // ---- Dead stock report ----
+  const lastSaleDateByProduct = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of allSaleItemsWithDate || []) {
+      const date = row.sales?.sale_date;
+      if (!date) continue;
+      const existing = map.get(row.product_id);
+      if (!existing || date > existing) map.set(row.product_id, date);
+    }
+    return map;
+  }, [allSaleItemsWithDate]);
+
+  const deadStockProducts = useMemo(() => {
+    const now = Date.now();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    return (products || [])
+      .filter((p: any) => Number(p.stock_quantity ?? 0) > 0)
+      .map((p: any) => {
+        const lastSale = lastSaleDateByProduct.get(p.id) || null;
+        const daysSince = lastSale ? Math.floor((now - new Date(lastSale).getTime()) / DAY_MS) : null;
+        const unitValue = Number(p.cost) > 0 ? Number(p.cost) : Number(p.price) || 0;
+        const tiedUpValue = unitValue * Number(p.stock_quantity ?? 0);
+        return { ...p, lastSale, daysSince, tiedUpValue };
+      })
+      .filter((p: any) => p.daysSince === null || p.daysSince >= deadStockDays)
+      .sort((a: any, b: any) => b.tiedUpValue - a.tiedUpValue);
+  }, [products, lastSaleDateByProduct, deadStockDays]);
+
+  const totalDeadStockValue = useMemo(
+    () => deadStockProducts.reduce((sum: number, p: any) => sum + p.tiedUpValue, 0),
+    [deadStockProducts]
   );
 
   return (
@@ -505,6 +553,81 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Dead stock report - always looks at all-time sales history, independent of the
+          period filter above, since a product being dead stock doesn't reset just because
+          you're viewing "Today" */}
+      <Card className="glass-card border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center gap-2">
+              <PackageX className="h-5 w-5 text-destructive" />
+              Dead Stock Report
+            </span>
+            <div className="flex gap-1.5">
+              {[30, 60, 90, 180].map((d) => (
+                <Button key={d} size="sm" variant={deadStockDays === d ? "default" : "outline"} onClick={() => setDeadStockDays(d)}>
+                  {d}+ days
+                </Button>
+              ))}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {deadStockProducts.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No products have been sitting unsold for {deadStockDays}+ days — inventory is moving well.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between p-3 mb-4 glass-card border-border/30 rounded-xl">
+                <span className="text-sm text-muted-foreground">Capital tied up in dead stock</span>
+                <span className="font-bold text-destructive">Rs. {totalDeadStockValue.toFixed(2)}</span>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Stock</TableHead>
+                    <TableHead className="text-right">Last Sold</TableHead>
+                    <TableHead className="text-right">Tied-up Value</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {deadStockProducts.slice(0, 20).map((p: any) => (
+                    <TableRow key={p.id}>
+                      <TableCell>
+                        <p className="font-medium">{p.name}</p>
+                        {p.category && <p className="text-xs text-muted-foreground">{p.category}</p>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.stock_quantity ?? 0} {p.unit_label || "pcs"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {p.daysSince === null ? (
+                          <Badge variant="destructive" className="text-[10px]">Never sold</Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">{p.daysSince}d ago</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">Rs. {p.tiedUpValue.toFixed(2)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {deadStockProducts.length > 20 && (
+                <p className="text-xs text-muted-foreground text-center mt-2">
+                  +{deadStockProducts.length - 20} more product{deadStockProducts.length - 20 === 1 ? "" : "s"} not shown
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-3">
+                Based on all-time sales history. "Never sold" means there's no sale on record for this product at all.
+                Value uses cost price where available, otherwise selling price.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
