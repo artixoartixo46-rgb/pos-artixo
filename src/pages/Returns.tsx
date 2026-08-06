@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,9 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Undo2, Search, Receipt, History, Loader2, PackageCheck, PackageX } from "lucide-react";
+import { Undo2, Search, Receipt, History, Loader2, PackageCheck, PackageX, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { QRScanner } from "@/components/QRScanner";
 
 const REASON_OPTIONS = [
   { value: "damaged", label: "Damaged" },
@@ -35,6 +37,7 @@ const DEFAULT_NON_RESTOCK_REASONS = new Set(["damaged", "expired"]);
 
 export default function Returns() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [selectedSale, setSelectedSale] = useState<any | null>(null);
@@ -43,6 +46,54 @@ export default function Returns() {
   const [reason, setReason] = useState("changed_mind");
   const [reasonNote, setReasonNote] = useState("");
   const [refundMethod, setRefundMethod] = useState("cash");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
+  // Extracts an invoice number out of either a plain string (typed/scanned as-is) or a
+  // scan-to-return URL like ".../returns?invoice=INV000010" - covers both a QR scanned by
+  // our in-app camera and one opened externally by any phone's native camera app.
+  const extractInvoiceNumber = (raw: string): string => {
+    const trimmed = raw.trim();
+    try {
+      const url = new URL(trimmed);
+      const fromUrl = url.searchParams.get("invoice");
+      if (fromUrl) return fromUrl;
+    } catch {
+      // not a URL - fall through and treat it as a plain invoice number
+    }
+    return trimmed;
+  };
+
+  const loadSaleByInvoiceNumber = async (invoiceNumber: string) => {
+    setLookupLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("sales")
+        .select("id, invoice_number, customer_id, customer_name, total_amount, sale_date, status")
+        .eq("invoice_number", invoiceNumber)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        toast.error(`No sale found for invoice "${invoiceNumber}"`);
+        return;
+      }
+      selectSale(data);
+    } catch (error: any) {
+      toast.error(error.message || "Failed to look up invoice");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  // Auto-select the sale if the page was opened via a scan-to-return QR (?invoice=...)
+  useEffect(() => {
+    const invoiceFromUrl = searchParams.get("invoice");
+    if (invoiceFromUrl) {
+      loadSaleByInvoiceNumber(invoiceFromUrl);
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: matchingSales, isLoading: searchLoading } = useQuery({
     queryKey: ["returns-sale-search", invoiceSearch],
@@ -227,13 +278,28 @@ export default function Returns() {
             <Search className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-semibold">Find a Sale</h2>
           </div>
-          <Input
-            placeholder="Search by invoice number..."
-            value={invoiceSearch}
-            onChange={(e) => setInvoiceSearch(e.target.value)}
-            className="glass border-border/50"
-            autoFocus
-          />
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search by invoice number..."
+              value={invoiceSearch}
+              onChange={(e) => setInvoiceSearch(e.target.value)}
+              className="glass border-border/50"
+              autoFocus
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="glass shrink-0 gap-2"
+              onClick={() => setCameraOpen(true)}
+              disabled={lookupLoading}
+            >
+              {lookupLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              Scan Receipt
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Scan the "Scan to Return" QR printed on the receipt to jump straight to that sale.
+          </p>
 
           {searchLoading && (
             <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -464,6 +530,16 @@ export default function Returns() {
           )}
         </CardContent>
       </Card>
+
+      <QRScanner
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={(data) => {
+          setCameraOpen(false);
+          const invoiceNumber = extractInvoiceNumber(data);
+          if (invoiceNumber) loadSaleByInvoiceNumber(invoiceNumber);
+        }}
+      />
     </div>
   );
 }

@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
 import html2canvas from "html2canvas";
+import QRCode from "qrcode";
 import {
   isWebUSBSupported,
   getSavedPrinterInfo,
@@ -822,7 +823,7 @@ export default function POSTerminal() {
   });
 
   // Auto print sale receipt
-  const printSaleReceipt = (saleData: {
+  const printSaleReceipt = async (saleData: {
     invoiceNumber: string;
     items: CartItem[];
     subtotal: number;
@@ -852,6 +853,11 @@ export default function POSTerminal() {
     const businessName = shopSettings?.business_name || 'Artixo POS';
     const businessAddress = shopSettings?.address || '';
     const businessPhone = shopSettings?.phone || '';
+
+    // Scan-to-return QR - lets a phone camera (or the in-app scanner on the Returns page)
+    // jump straight to this invoice instead of typing the invoice number in by hand.
+    const returnUrl = `${window.location.origin}/returns?invoice=${encodeURIComponent(saleData.invoiceNumber)}`;
+    const returnQrDataUrl = await QRCode.toDataURL(returnUrl, { width: 200, margin: 1, errorCorrectionLevel: "M" }).catch(() => "");
 
     const formatQty = (item: CartItem) =>
       item.is_weight_based ? item.quantity.toFixed(3) : String(item.quantity);
@@ -916,6 +922,9 @@ export default function POSTerminal() {
             .footer { text-align: center; margin-top: 14px; font-size: 10px; font-weight: 700; }
             .footer .thanks { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
             .footer .stamp { display: inline-block; border: 2px solid #000; border-radius: 50%; padding: 6px 10px; font-weight: 900; font-size: 9px; letter-spacing: 1px; transform: rotate(-6deg); margin: 4px 0; }
+            .footer .return-qr { margin: 8px 0 2px 0; }
+            .footer .return-qr img { width: 20mm; height: 20mm; image-rendering: pixelated; }
+            .footer .return-qr .label { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
             .footer .support { font-size: 9.5px; font-weight: 700; color: #000; margin-top: 6px; }
             .footer .powered { font-size: 8.5px; font-weight: 800; color: #000; margin-top: 8px; letter-spacing: 0.6px; }
           </style>
@@ -998,6 +1007,12 @@ export default function POSTerminal() {
             <div class="footer">
               <div class="thanks">Thank You!</div>
               <div class="stamp">VISIT<br/>AGAIN</div>
+              ${returnQrDataUrl ? `
+              <div class="return-qr">
+                <img src="${returnQrDataUrl}" alt="Scan to return" />
+                <div class="label">Scan to Return</div>
+              </div>
+              ` : ''}
               <div class="support">Support: ${SUPPORT_PHONE}</div>
               <div class="powered">POWERED BY ARTIXO POS</div>
             </div>
@@ -1067,7 +1082,7 @@ export default function POSTerminal() {
         // fall through to browser print
       }
     }
-    printSaleReceipt(saleData);
+    await printSaleReceipt(saleData);
   };
 
   const isNetworkError = (err: any) => {

@@ -170,6 +170,20 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
     const pad = Math.max(0, Math.floor((width - text.length) / 2));
     push(" ".repeat(pad) + text + "\n");
   };
+  // Prints a 2D QR symbol using the standard ESC/POS "GS ( k" command set (Epson TM-series
+  // and virtually every clone thermal printer that supports QR at all implements this same
+  // command set: select model 2, set module size + error correction, store data, then print).
+  const qr = (data: string, moduleSize = 6) => {
+    const dataBytes = Array.from(encoder.encode(data));
+    const storeLen = dataBytes.length + 3;
+    const pL = storeLen % 256;
+    const pH = Math.floor(storeLen / 256) % 256;
+    bytes.push(GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00); // select model 2
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize); // module size
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31); // error correction: M
+    bytes.push(GS, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30, ...dataBytes); // store data
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30); // print stored symbol
+  };
 
   const now = new Date();
 
@@ -210,6 +224,15 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   twoCol("Paid Amount:", `Rs. ${data.paidAmount.toFixed(2)}`);
   twoCol(data.balance >= 0 ? "Change:" : "Balance Due:", `Rs. ${Math.abs(data.balance).toFixed(2)}`);
   hr();
+
+  // Scan-to-return QR - opens the Returns page with this invoice pre-selected, from any
+  // phone's camera or the in-app scanner on the Returns page.
+  if (typeof window !== "undefined") {
+    align("center");
+    push("Scan to Return\n");
+    qr(`${window.location.origin}/returns?invoice=${encodeURIComponent(data.invoiceNumber)}`);
+    feed(1);
+  }
 
   align("center");
   push("Thank you! Visit Again\n");
