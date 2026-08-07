@@ -35,7 +35,9 @@ import {
   isWebUSBSupported,
   getSavedPrinterInfo,
   isAutoDirectPrintEnabled,
+  isAutoOpenDrawerEnabled,
   printReceiptDirect,
+  openCashDrawer,
   getPaperWidth,
 } from "@/lib/thermalPrinter";
 import artixoLogo from "@/assets/artixo-logo.png";
@@ -1364,6 +1366,15 @@ export default function POSTerminal() {
 
       // Auto print receipt (works offline too - direct thermal print and browser print both do)
       printReceipt(data.receiptData);
+
+      // Cash sale + a connected thermal printer with the drawer wired into it + the setting
+      // turned on in Settings - pop the drawer so the cashier doesn't need a separate key/button.
+      // Never blocks or fails the sale itself if the drawer isn't set up.
+      if (paymentMethod === "Cash" && isWebUSBSupported() && getSavedPrinterInfo() && isAutoOpenDrawerEnabled()) {
+        openCashDrawer().catch(() => {
+          // silent - drawer may be unplugged/not wired to this printer, sale already succeeded
+        });
+      }
 
       if (data.offline) {
         toast({

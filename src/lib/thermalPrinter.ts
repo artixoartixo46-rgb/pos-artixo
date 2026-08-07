@@ -5,6 +5,7 @@
 const DEVICE_STORAGE_KEY = "artixo_thermal_printer_device";
 const WIDTH_STORAGE_KEY = "artixo_thermal_printer_width";
 const AUTO_PRINT_STORAGE_KEY = "artixo_thermal_printer_auto";
+const AUTO_DRAWER_STORAGE_KEY = "artixo_thermal_printer_auto_drawer";
 
 export interface SavedPrinterInfo {
   vendorId: number;
@@ -64,6 +65,14 @@ export function isAutoDirectPrintEnabled(): boolean {
 
 export function setAutoDirectPrintEnabled(enabled: boolean) {
   localStorage.setItem(AUTO_PRINT_STORAGE_KEY, enabled ? "1" : "0");
+}
+
+export function isAutoOpenDrawerEnabled(): boolean {
+  return localStorage.getItem(AUTO_DRAWER_STORAGE_KEY) === "1";
+}
+
+export function setAutoOpenDrawerEnabled(enabled: boolean) {
+  localStorage.setItem(AUTO_DRAWER_STORAGE_KEY, enabled ? "1" : "0");
 }
 
 export function forgetPrinter() {
@@ -249,6 +258,14 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
 
 export async function printReceiptDirect(data: ReceiptPrintData): Promise<void> {
   await sendBytes(buildReceiptBytes(data));
+}
+
+// Cash drawer kick pulse - the standard ESC/POS "ESC p m t1 t2" real-time drawer command.
+// Only works if the cash drawer is wired into the thermal printer's own drawer-kick port
+// (the usual setup - most receipt printers have one) rather than plugged in separately.
+// m=0 selects drawer pin 2 (the common wiring); t1/t2 are the on/off pulse widths.
+export async function openCashDrawer(): Promise<void> {
+  await sendBytes([ESC, 0x70, 0x00, 0x19, 0xfa]);
 }
 
 export async function printTestReceipt(businessName?: string): Promise<void> {

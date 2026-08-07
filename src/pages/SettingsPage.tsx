@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import QRCodeLib from "qrcode";
 import artixoLogo from "@/assets/artixo-logo.png";
@@ -23,6 +23,9 @@ import {
   setPaperWidth,
   isAutoDirectPrintEnabled,
   setAutoDirectPrintEnabled,
+  isAutoOpenDrawerEnabled,
+  setAutoOpenDrawerEnabled,
+  openCashDrawer,
   printTestReceipt,
 } from "@/lib/thermalPrinter";
 
@@ -95,8 +98,10 @@ export default function SettingsPage() {
   const [printerConnected, setPrinterConnected] = useState(false);
   const [paperWidth, setPaperWidthState] = useState<58 | 80>(getPaperWidth());
   const [autoDirectPrint, setAutoDirectPrintState] = useState(isAutoDirectPrintEnabled());
+  const [autoOpenDrawer, setAutoOpenDrawerState] = useState(isAutoOpenDrawerEnabled());
   const [connecting, setConnecting] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
+  const [openingDrawer, setOpeningDrawer] = useState(false);
 
   useEffect(() => {
     if (!webUSBSupported || !printerInfo) return;
@@ -135,6 +140,18 @@ export default function SettingsPage() {
       toast.error(err?.message || "Test print failed");
     } finally {
       setTestPrinting(false);
+    }
+  };
+
+  const handleOpenDrawer = async () => {
+    setOpeningDrawer(true);
+    try {
+      await openCashDrawer();
+      toast.success("Drawer kick sent");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not open drawer - check it's wired into the printer's drawer port");
+    } finally {
+      setOpeningDrawer(false);
     }
   };
 
@@ -390,21 +407,47 @@ export default function SettingsPage() {
                   }}
                 />
               </div>
+              <div className="flex items-center justify-between glass-card border-border/50 rounded-md px-3 mt-2">
+                <Label htmlFor="auto-open-drawer" className="text-sm cursor-pointer">
+                  Auto-open cash drawer after Cash sales
+                </Label>
+                <Switch
+                  id="auto-open-drawer"
+                  checked={autoOpenDrawer}
+                  onCheckedChange={(checked) => {
+                    setAutoOpenDrawerState(checked);
+                    setAutoOpenDrawerEnabled(checked);
+                  }}
+                />
+              </div>
             </div>
 
-            <Button
-              variant="outline"
-              className="w-full gap-2"
-              onClick={handleTestPrint}
-              disabled={!printerInfo || testPrinting}
-            >
-              <Printer className="h-4 w-4" />
-              {testPrinting ? "Printing..." : "Test Print"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 gap-2"
+                onClick={handleTestPrint}
+                disabled={!printerInfo || testPrinting}
+              >
+                <Printer className="h-4 w-4" />
+                {testPrinting ? "Printing..." : "Test Print"}
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1 gap-2"
+                onClick={handleOpenDrawer}
+                disabled={!printerInfo || openingDrawer}
+              >
+                <Wallet className="h-4 w-4" />
+                {openingDrawer ? "Opening..." : "Open Drawer"}
+              </Button>
+            </div>
 
             <p className="text-xs text-muted-foreground">
               This is set per device/browser — connect the printer once on each till PC. If direct printing
               isn't set up or the printer is unplugged, receipts automatically fall back to the normal print dialog.
+              The cash drawer must be wired into the printer's own drawer-kick port (the usual setup) - a
+              separately-connected drawer with no printer link can't be triggered from here.
             </p>
           </div>
         )}
