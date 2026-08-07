@@ -879,6 +879,56 @@ export default function POSTerminal() {
     }
   };
 
+  // Keep a ref to the latest handleQRScan so the global listener below (which only runs its
+  // setup effect once) never closes over stale cart/state from an earlier render.
+  const handleQRScanRef = useRef(handleQRScan);
+  useEffect(() => {
+    handleQRScanRef.current = handleQRScan;
+  });
+
+  // Hardware barcode/QR scanners act like a keyboard: they "type" the decoded value into
+  // whatever element currently has focus, then send Enter. That works fine on a desktop/laptop
+  // where the search bar reliably holds focus - but on a touch-only POS terminal (no mouse, no
+  // physical keyboard) there's nothing to click into the search bar, so focus drifts to whatever
+  // was last tapped (a product tile, a button, or nothing at all) and the scan silently goes
+  // nowhere. This listens at the document level and reconstructs scanner input from raw
+  // keystrokes - completely independent of what currently has focus - so a scan works no matter
+  // where the cashier last tapped. It only steps back when a *different* real text field (one the
+  // cashier deliberately clicked/tapped into, e.g. Discount or Customer search) has focus, so
+  // normal human typing elsewhere on the page is never hijacked.
+  useEffect(() => {
+    let buffer = "";
+    let lastKeyTime = 0;
+    const SCANNER_MAX_GAP_MS = 60; // hardware scanners fire keystrokes far faster than any human types
+    const MIN_SCAN_LENGTH = 4;
+
+    const handleGlobalKeydown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isOtherTextField =
+        (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) && target !== searchInputRef.current;
+      if (isOtherTextField) return; // a human deliberately focused this field - let them type normally
+      if (target === searchInputRef.current) return; // already handled by handleSearchChange/handleSearchKeyDown
+
+      const now = Date.now();
+      if (now - lastKeyTime > SCANNER_MAX_GAP_MS) buffer = "";
+      lastKeyTime = now;
+
+      if (e.key === "Enter") {
+        if (buffer.length >= MIN_SCAN_LENGTH) {
+          e.preventDefault();
+          handleQRScanRef.current(buffer);
+        }
+        buffer = "";
+        return;
+      }
+      if (e.key.length === 1) buffer += e.key;
+    };
+
+    document.addEventListener("keydown", handleGlobalKeydown);
+    return () => document.removeEventListener("keydown", handleGlobalKeydown);
+  }, []);
+
   // Watch for scanner/typed input in the search bar (debounced so normal typing doesn't spam lookups)
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
