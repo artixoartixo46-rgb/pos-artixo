@@ -12,7 +12,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
 
@@ -41,6 +41,43 @@ export default function TopBar() {
     refetchInterval: 15000,
   });
 
+  const { data: pendingCheckins } = useQuery({
+    queryKey: ["topbar-vendor-checkins"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("vendor_checkins").select("id, vendor_name").eq("status", "pending");
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 60000,
+  });
+
+  // Held bills live in localStorage (per-till, set by POS Terminal) - not a live subscription,
+  // just polled like everything else here so the badge stays roughly in sync.
+  const { data: heldBillsCount = 0 } = useQuery({
+    queryKey: ["topbar-held-bills"],
+    queryFn: () => {
+      try {
+        const raw = localStorage.getItem("pos_held_bills");
+        return raw ? (JSON.parse(raw) as unknown[]).length : 0;
+      } catch {
+        return 0;
+      }
+    },
+    refetchInterval: 10000,
+  });
+
+  const { data: creditOutstanding } = useQuery({
+    queryKey: ["topbar-credit-outstanding"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("credit_customers").select("id, outstanding_balance");
+      if (error) throw error;
+      const withBalance = (data || []).filter((c) => Number(c.outstanding_balance ?? 0) > 0);
+      const total = withBalance.reduce((sum, c) => sum + Number(c.outstanding_balance ?? 0), 0);
+      return { count: withBalance.length, total };
+    },
+    refetchInterval: 60000,
+  });
+
   const { data: shopSettings } = useQuery({
     queryKey: ["topbar-settings"],
     queryFn: async () => {
@@ -50,7 +87,12 @@ export default function TopBar() {
     },
   });
 
-  const notifCount = (lowStockItems?.length || 0) + pendingSyncCount;
+  const notifCount =
+    (lowStockItems?.length || 0) +
+    pendingSyncCount +
+    (pendingCheckins?.length || 0) +
+    (heldBillsCount || 0) +
+    (creditOutstanding?.count ? 1 : 0); // one aggregated line, not per-customer
   const initials = (shopSettings?.business_name || "Artixo").trim().slice(0, 2).toUpperCase();
 
   return (
@@ -124,6 +166,30 @@ export default function TopBar() {
                 <RefreshCw className="h-4 w-4 mr-2 text-amber-500 shrink-0" />
                 <span className="truncate">
                   {pendingSyncCount} offline sale{pendingSyncCount === 1 ? "" : "s"} waiting to sync
+                </span>
+              </DropdownMenuItem>
+            )}
+            {heldBillsCount > 0 && (
+              <DropdownMenuItem onClick={() => navigate("/pos")} className="cursor-pointer">
+                <PauseCircle className="h-4 w-4 mr-2 text-primary shrink-0" />
+                <span className="truncate">
+                  {heldBillsCount} held bill{heldBillsCount === 1 ? "" : "s"} waiting to resume
+                </span>
+              </DropdownMenuItem>
+            )}
+            {(pendingCheckins?.length || 0) > 0 && (
+              <DropdownMenuItem onClick={() => navigate("/product-receiving")} className="cursor-pointer">
+                <TruckIcon className="h-4 w-4 mr-2 text-amber-500 shrink-0" />
+                <span className="truncate">
+                  {pendingCheckins!.length} vendor check-in{pendingCheckins!.length === 1 ? "" : "s"} to review
+                </span>
+              </DropdownMenuItem>
+            )}
+            {creditOutstanding && creditOutstanding.count > 0 && (
+              <DropdownMenuItem onClick={() => navigate("/credit-customers")} className="cursor-pointer">
+                <Wallet className="h-4 w-4 mr-2 text-amber-500 shrink-0" />
+                <span className="truncate">
+                  {creditOutstanding.count} customer{creditOutstanding.count === 1 ? "" : "s"} owe Rs. {creditOutstanding.total.toFixed(0)} on credit
                 </span>
               </DropdownMenuItem>
             )}
