@@ -855,6 +855,33 @@ export type Database = {
           },
         ]
       }
+      catalog_checkout_sessions: {
+        Row: {
+          code: string
+          consumed_at: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          items: Json
+        }
+        Insert: {
+          code: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          items: Json
+        }
+        Update: {
+          code?: string
+          consumed_at?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          items?: Json
+        }
+        Relationships: []
+      }
       settings: {
         Row: {
           address: string | null

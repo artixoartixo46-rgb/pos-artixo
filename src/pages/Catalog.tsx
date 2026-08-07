@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Search, Plus, Minus, X, ShoppingBag, QrCode, Loader2 } from "lucide-react";
 import QRCode from "qrcode";
+import { toast } from "sonner";
 import artixoLogo from "@/assets/artixo-logo.png";
 
 interface ListEntry {
@@ -94,15 +95,28 @@ export default function Catalog() {
     });
   };
 
+  // Encoding the full item list (with full product UUIDs) straight into the QR makes it dense
+  // enough that hardware barcode/QR scanners - especially reading off a phone screen - struggle
+  // or fail to decode it, even though they scan every other (short-URL) QR in this app fine.
+  // So instead: save the list server-side under a short random code, and only put that short
+  // code in the QR. The cashier's scanner (camera or hardware gun) just needs to read a handful
+  // of characters, then POS Terminal looks the list up by code.
   const generateCheckoutQr = async () => {
     setGeneratingQr(true);
     try {
-      const payload = JSON.stringify({
-        type: "catalog_list",
+      const code = crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+      const { error } = await supabase.from("catalog_checkout_sessions").insert({
+        code,
         items: listItems.map((i) => ({ product_id: i.product_id, qty: i.qty })),
       });
-      const dataUrl = await QRCode.toDataURL(payload, { width: 320, margin: 1, errorCorrectionLevel: "M" });
+      if (error) throw error;
+
+      const payload = JSON.stringify({ type: "catalog_session", code });
+      const dataUrl = await QRCode.toDataURL(payload, { width: 320, margin: 3, errorCorrectionLevel: "M" });
       setCheckoutQrUrl(dataUrl);
+    } catch (err) {
+      console.error("Failed to generate checkout QR:", err);
+      toast.error("Couldn't create your checkout code. Please try again.");
     } finally {
       setGeneratingQr(false);
     }

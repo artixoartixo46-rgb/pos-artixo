@@ -712,9 +712,31 @@ export default function POSTerminal() {
         if (parsed.type === "item" && parsed.item_id) {
           qrNumber = String(parsed.item_id);
         } else if (parsed.type === "catalog_list" && Array.isArray(parsed.items)) {
-          // Customer's self-built list from the public catalog page
+          // Legacy format: full item list embedded directly in the QR
           await handleCatalogListScan(parsed.items);
           setLastScannedQR(qrContent);
+          setTimeout(() => setLastScannedQR(""), 500);
+          return;
+        } else if (parsed.type === "catalog_session" && parsed.code) {
+          // Customer's self-built list from the public catalog page, referenced by a short code
+          // (kept short specifically so hardware barcode/QR scanners can decode it reliably -
+          // the full item list used to be embedded directly and was too dense for some scanners).
+          setLastScannedQR(qrContent);
+          const { data: session, error } = await supabase
+            .from("catalog_checkout_sessions")
+            .select("items, expires_at")
+            .eq("code", parsed.code)
+            .maybeSingle();
+          if (error || !session) {
+            playScanBeep(false);
+            toast({ title: "Code not found", description: "This checkout code is invalid or already used.", variant: "destructive" });
+          } else if (new Date(session.expires_at) < new Date()) {
+            playScanBeep(false);
+            toast({ title: "Code expired", description: "Ask the customer to regenerate their list QR.", variant: "destructive" });
+          } else {
+            await handleCatalogListScan(session.items as { product_id: string; qty: number }[]);
+            await supabase.from("catalog_checkout_sessions").update({ consumed_at: new Date().toISOString() }).eq("code", parsed.code);
+          }
           setTimeout(() => setLastScannedQR(""), 500);
           return;
         } else if (parsed.qr) {
