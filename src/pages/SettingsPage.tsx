@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import QRCodeLib from "qrcode";
+import artixoLogo from "@/assets/artixo-logo.png";
 import {
   isWebUSBSupported,
   getSavedPrinterInfo,
@@ -146,6 +147,67 @@ export default function SettingsPage() {
     const dataUrl = await QRCodeLib.toDataURL(url, { width: 400, margin: 1, errorCorrectionLevel: "M" });
     setCatalogQrDataUrl(dataUrl);
     setCatalogQrOpen(true);
+  };
+
+  // Opens a print-ready A5 poster (not a thermal label - this is meant to be printed on a
+  // regular printer and posted at the counter/shelves for customers to scan).
+  const printCatalogQr = () => {
+    if (!catalogQrDataUrl) return;
+    const shopName = formData.business_name || "Artixo POS";
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const printContent = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Catalog QR - ${shopName}</title>
+  <style>
+    @page { size: A5 portrait; margin: 0; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 148mm;
+      height: 210mm;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 14mm;
+    }
+    .logo { width: 22mm; height: 22mm; margin-bottom: 5mm; object-fit: contain; }
+    .shop-name { font-size: 13pt; font-weight: 600; color: #6d28d9; margin: 0 0 8mm; letter-spacing: 0.5px; }
+    h1 { font-size: 20pt; margin: 0 0 3mm; color: #1e1b4b; line-height: 1.3; }
+    p.sub { font-size: 11pt; color: #666; margin: 0 0 9mm; }
+    .qr-box { width: 85mm; height: 85mm; padding: 5mm; border: 2px solid #e5e0f5; border-radius: 6mm; }
+    .qr-box img { width: 100%; height: 100%; display: block; }
+    ol.steps { margin: 10mm 0 0; padding: 0 0 0 5mm; font-size: 10.5pt; color: #333; text-align: left; max-width: 95mm; }
+    ol.steps li { margin-bottom: 3mm; }
+    .footer { margin-top: auto; padding-top: 10mm; font-size: 8.5pt; color: #999; }
+  </style>
+</head>
+<body>
+  <img class="logo" src="${artixoLogo}" />
+  <p class="shop-name">${shopName}</p>
+  <h1>Scan to Browse Our Products</h1>
+  <p class="sub">Check prices &amp; availability instantly on your phone</p>
+  <div class="qr-box"><img src="${catalogQrDataUrl}" /></div>
+  <ol class="steps">
+    <li>Open your phone camera and scan this QR code</li>
+    <li>Search &amp; browse products with live prices</li>
+    <li>Build your list, then show it to the cashier</li>
+  </ol>
+  <div class="footer">Powered by Artixo POS</div>
+</body>
+</html>`;
+
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      setTimeout(() => printWindow.print(), 300);
+    };
   };
 
   return (
@@ -379,6 +441,10 @@ export default function SettingsPage() {
             <p className="text-sm text-muted-foreground text-center">
               Print this and display it where customers can easily scan it.
             </p>
+            <Button className="w-full gap-2 bg-primary hover:bg-primary/90" onClick={printCatalogQr}>
+              <Printer className="h-4 w-4" />
+              Print Catalog QR
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
