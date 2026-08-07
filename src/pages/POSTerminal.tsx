@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
 import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
 import {
@@ -117,6 +117,50 @@ interface CreditInvoice {
   customer_name: string;
 }
 
+// Hold/Park Bill: a cashier building a big order can shelve it, serve someone else on the
+// same counter, then resume it later. Stored in localStorage (not the server) since it's
+// purely a per-till, same-shift working state - it also survives an accidental page refresh,
+// which a big multi-item bill would otherwise lose entirely.
+interface HeldBill {
+  id: string;
+  label: string;
+  heldAt: string; // ISO timestamp
+  cart: CartItem[];
+  discount: number;
+  discountType: DiscountType;
+  paymentMethod: PaymentMethod;
+  customerPaidAmount: number;
+  selectedCustomer: CreditCustomer | null;
+  total: number; // snapshot, just for the list preview
+}
+
+const HELD_BILLS_KEY = "pos_held_bills";
+
+function loadHeldBills(): HeldBill[] {
+  try {
+    const raw = localStorage.getItem(HELD_BILLS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHeldBills(bills: HeldBill[]) {
+  try {
+    localStorage.setItem(HELD_BILLS_KEY, JSON.stringify(bills));
+  } catch {
+    // storage full/unavailable - held bills just won't survive a refresh, non-fatal
+  }
+}
+
+function formatHeldAgo(iso: string): string {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m ago`;
+}
+
 export default function POSTerminal() {
   const isOnline = useOnlineStatus();
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
@@ -129,6 +173,8 @@ export default function POSTerminal() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
   const [customerPaidAmount, setCustomerPaidAmount] = useState<number>(0);
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
+  const [heldBills, setHeldBills] = useState<HeldBill[]>(() => loadHeldBills());
+  const [heldBillsOpen, setHeldBillsOpen] = useState(false);
   const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
   const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [creditAccountOpen, setCreditAccountOpen] = useState(false);
@@ -1603,6 +1649,69 @@ export default function POSTerminal() {
   const total = subtotal - discountAmount;
   const balance = customerPaidAmount - total;
 
+  // Hold/Park Bill: shelve the in-progress cart so this counter is free for the next
+  // customer, then pick it back up later exactly where it was left off.
+  const holdCurrentBill = () => {
+    if (cart.length === 0) {
+      toast({ title: "Cart is empty", description: "Add items before holding a bill.", variant: "destructive" });
+      return;
+    }
+    const label = selectedCustomer?.name || `Hold #${heldBills.length + 1}`;
+    const newHold: HeldBill = {
+      id: crypto.randomUUID(),
+      label,
+      heldAt: new Date().toISOString(),
+      cart,
+      discount,
+      discountType,
+      paymentMethod,
+      customerPaidAmount,
+      selectedCustomer,
+      total,
+    };
+    const updated = [...heldBills, newHold];
+    setHeldBills(updated);
+    saveHeldBills(updated);
+
+    setCart([]);
+    setDiscount(0);
+    setCustomerPaidAmount(0);
+    setSelectedCustomer(null);
+    setPaymentMethod("Cash");
+    setSearchTerm("");
+
+    toast({ title: "Bill Held", description: `"${label}" saved - resume it anytime from Held Bills.` });
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  const resumeHeldBill = (id: string) => {
+    const bill = heldBills.find((b) => b.id === id);
+    if (!bill) return;
+    if (cart.length > 0 && !window.confirm("Current cart has items that will be replaced. Continue?")) {
+      return;
+    }
+    setCart(bill.cart);
+    setDiscount(bill.discount);
+    setDiscountType(bill.discountType);
+    setPaymentMethod(bill.paymentMethod);
+    setCustomerPaidAmount(bill.customerPaidAmount);
+    setSelectedCustomer(bill.selectedCustomer);
+
+    const updated = heldBills.filter((b) => b.id !== id);
+    setHeldBills(updated);
+    saveHeldBills(updated);
+    setHeldBillsOpen(false);
+    toast({ title: "Bill Resumed", description: `"${bill.label}" loaded back into the cart.` });
+  };
+
+  const deleteHeldBill = (id: string) => {
+    const bill = heldBills.find((b) => b.id === id);
+    const updated = heldBills.filter((b) => b.id !== id);
+    setHeldBills(updated);
+    saveHeldBills(updated);
+    if (bill) toast({ title: "Held Bill Discarded", description: `"${bill.label}" removed.` });
+  };
+
   const handlePrintBill = async () => {
     if (!receiptRef.current) {
       toast({
@@ -2098,6 +2207,30 @@ export default function POSTerminal() {
                   <WeightIcon className={`h-4 w-4 ${scaleStatus === "connected" ? "text-green-600" : ""}`} />
                   {scaleStatus === "connected" ? `${scaleReading ? scaleReading.weightKg.toFixed(3) : "0.000"} kg` : "Scale"}
                 </Button>
+                <Button
+                  onClick={holdCurrentBill}
+                  variant="outline"
+                  className="glass gap-2"
+                  disabled={cart.length === 0}
+                  title="Park this bill and free up the counter for the next customer"
+                >
+                  <PauseCircle className="h-4 w-4" />
+                  Hold Bill
+                </Button>
+                <Button
+                  onClick={() => setHeldBillsOpen(true)}
+                  variant="outline"
+                  className="glass gap-2 relative"
+                  title="Resume a previously held bill"
+                >
+                  <Clock className="h-4 w-4" />
+                  Held
+                  {heldBills.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold grid place-items-center">
+                      {heldBills.length}
+                    </span>
+                  )}
+                </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
                 USB/Bluetooth barcode scanner? Just plug it in (or pair it) and scan — it types straight into the search bar above and adds the item automatically.
@@ -2535,6 +2668,45 @@ export default function POSTerminal() {
               {(selectedInvoice.balance || 0) === 0 && (
                 <p className="text-sm text-yellow-400 text-center">Invoice already settled.</p>
               )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Held Bills - park a big order mid-build, serve someone else, resume it later */}
+      <Dialog open={heldBillsOpen} onOpenChange={setHeldBillsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-primary" />
+              Held Bills
+            </DialogTitle>
+          </DialogHeader>
+          {heldBills.length === 0 ? (
+            <p className="text-center text-muted-foreground py-10 text-sm">
+              No held bills. Use "Hold Bill" to park the current cart and free up the counter.
+            </p>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {heldBills.map((bill) => (
+                <div key={bill.id} className="flex items-center justify-between gap-3 p-3 border rounded-xl glass-card">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{bill.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {bill.cart.length} item{bill.cart.length === 1 ? "" : "s"} · Rs. {bill.total.toFixed(2)} · {formatHeldAgo(bill.heldAt)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button size="sm" variant="destructive" className="h-8" onClick={() => deleteHeldBill(bill.id)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button size="sm" className="h-8 gap-1.5 bg-primary hover:bg-primary/90" onClick={() => resumeHeldBill(bill.id)}>
+                      <PlayCircle className="h-3.5 w-3.5" />
+                      Resume
+                    </Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </DialogContent>
