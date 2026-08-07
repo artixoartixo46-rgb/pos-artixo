@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download } from "lucide-react";
 import { toast } from "sonner";
 import QRCodeLib from "qrcode";
 import artixoLogo from "@/assets/artixo-logo.png";
@@ -225,6 +225,66 @@ export default function SettingsPage() {
     printWindow.onload = () => {
       setTimeout(() => printWindow.print(), 300);
     };
+  };
+
+  // ---- Full database backup (manual download, separate from the automated Google Sheets sync) ----
+  const [backingUp, setBackingUp] = useState(false);
+
+  // Every business table worth keeping a copy of. Deliberately excludes catalog_checkout_sessions
+  // (short-lived, 2-hour-expiry QR checkout codes - plumbing, not business data).
+  const BACKUP_TABLES = [
+    "products", "product_categories", "product_price_tiers", "product_receiving",
+    "sales", "sale_items", "returns", "return_items",
+    "credit_customers", "credit_payment_history",
+    "vendors", "vendor_bills", "vendor_ledger", "vendor_checkins", "vendor_checkin_items",
+    "stock_takes", "stock_take_items",
+    "cheques", "cheque_print_history",
+    "banks", "locations", "settings",
+  ] as const;
+
+  // PostgREST caps a plain .select() at 1000 rows by default and nothing else in this codebase
+  // paginates around that - so a naive full-table fetch would silently truncate sales history
+  // for any shop with real transaction volume. Page through with .range() instead.
+  const fetchAllRows = async (table: string): Promise<any[]> => {
+    const PAGE_SIZE = 1000;
+    let rows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase.from(table as any).select("*").range(from, from + PAGE_SIZE - 1);
+      if (error) throw new Error(`${table}: ${error.message}`);
+      if (!data || data.length === 0) break;
+      rows = rows.concat(data);
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return rows;
+  };
+
+  const handleFullBackup = async () => {
+    setBackingUp(true);
+    try {
+      const tables: Record<string, any[]> = {};
+      let totalRows = 0;
+      for (const table of BACKUP_TABLES) {
+        const rows = await fetchAllRows(table);
+        tables[table] = rows;
+        totalRows += rows.length;
+      }
+      const payload = { exported_at: new Date().toISOString(), source: "Artixo POS", tables };
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `artixo-pos-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Backup downloaded — ${totalRows} rows across ${BACKUP_TABLES.length} tables`);
+    } catch (err: any) {
+      toast.error(err?.message || "Backup failed");
+    } finally {
+      setBackingUp(false);
+    }
   };
 
   return (
@@ -466,6 +526,23 @@ export default function SettingsPage() {
         <Button variant="outline" className="glass gap-2" onClick={openCatalogQr}>
           <QrCode className="h-4 w-4" />
           Show Catalog QR
+        </Button>
+      </Card>
+
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
+        <div className="flex items-center gap-2 mb-4">
+          <Database className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">Data Backup</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Download a complete copy of your shop's data — products, sales, customers, vendors, stock
+          history, returns and more — as a single JSON file you keep yourself. This is separate from
+          the automated Google Sheets backup; use it as an extra safety net before major changes, or
+          just periodically for peace of mind.
+        </p>
+        <Button variant="outline" className="glass gap-2" onClick={handleFullBackup} disabled={backingUp}>
+          <Download className="h-4 w-4" />
+          {backingUp ? "Backing up..." : "Download Full Backup"}
         </Button>
       </Card>
 
