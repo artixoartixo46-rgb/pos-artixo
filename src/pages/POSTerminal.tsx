@@ -986,6 +986,7 @@ export default function POSTerminal() {
         <head>
           <title>Receipt - ${saleData.invoiceNumber}</title>
           <style>
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@600;700&display=swap');
             * { margin: 0; padding: 0; box-sizing: border-box; }
             @page { size: ${widthMm}mm auto; margin: 0; }
             @media print {
@@ -1002,6 +1003,11 @@ export default function POSTerminal() {
               color: #000;
               line-height: 1.45;
             }
+            /* Tamil sub-label shown under each English field name - bilingual receipt so
+               Tamil-speaking customers can read every line without relying on English. */
+            .ta { display: block; font-family: 'Noto Sans Tamil', 'Nirmala UI', sans-serif; font-size: 8px; font-weight: 600; color: #444; margin-top: 1px; }
+            .thanks .ta { font-size: 10px; color: #000; margin-top: 2px; }
+            .return-qr .ta { font-size: 7.5px; color: #444; }
             .ticket { border: 2.5px solid #000; padding: 4mm 3mm; }
             .zigzag { height: 5px; margin: 0 -3mm 6px -3mm; background-image: linear-gradient(135deg, #fff 50%, transparent 50%), linear-gradient(-135deg, #fff 50%, transparent 50%); background-size: 8px 10px; background-position: bottom; background-repeat: repeat-x; background-color: #000; }
             .zigzag.bottom { margin: 6px -3mm 0 -3mm; }
@@ -1051,16 +1057,16 @@ export default function POSTerminal() {
 
             <div class="info">
               <div class="info-row">
-                <span>Invoice</span>
+                <span>Invoice<span class="ta">பில் எண்</span></span>
                 <span class="val">${saleData.invoiceNumber}</span>
               </div>
               <div class="info-row">
-                <span>Date</span>
+                <span>Date<span class="ta">தேதி</span></span>
                 <span class="val">${dateStr}&nbsp;&nbsp;${timeStr}</span>
               </div>
               ${saleData.customerName ? `
               <div class="info-row">
-                <span>Customer</span>
+                <span>Customer<span class="ta">வாடிக்கையாளர்</span></span>
                 <span class="val">${saleData.customerName}</span>
               </div>
               ` : ''}
@@ -1070,8 +1076,8 @@ export default function POSTerminal() {
 
             <div class="items">
               <div class="items-head">
-                <span>Item</span>
-                <span>Amount</span>
+                <span>Item<span class="ta">பொருள்</span></span>
+                <span>Amount<span class="ta">தொகை</span></span>
               </div>
               ${itemsHTML}
             </div>
@@ -1080,32 +1086,32 @@ export default function POSTerminal() {
 
             <div class="totals">
               <div class="row">
-                <span>Subtotal</span>
+                <span>Subtotal<span class="ta">கூட்டுத்தொகை</span></span>
                 <span>Rs. ${saleData.subtotal.toFixed(2)}</span>
               </div>
               ${saleData.discountAmount > 0 ? `
               <div class="row discount">
-                <span>Discount</span>
+                <span>Discount<span class="ta">தள்ளுபடி</span></span>
                 <span>- Rs. ${saleData.discountAmount.toFixed(2)}</span>
               </div>
               ` : ''}
               <div class="row grand">
-                <span>TOTAL</span>
+                <span>TOTAL<span class="ta">மொத்தம்</span></span>
                 <span>Rs. ${saleData.total.toFixed(2)}</span>
               </div>
             </div>
 
             <div class="payment">
               <div class="info-row">
-                <span>Paid By</span>
+                <span>Paid By<span class="ta">பணம் செலுத்திய முறை</span></span>
                 <span class="badge">${saleData.paymentMethod}</span>
               </div>
               <div class="info-row">
-                <span>Paid Amount</span>
+                <span>Paid Amount<span class="ta">செலுத்திய தொகை</span></span>
                 <span class="val">Rs. ${saleData.paidAmount.toFixed(2)}</span>
               </div>
               <div class="info-row due">
-                <span>${saleData.balance >= 0 ? 'Change' : 'Balance Due'}</span>
+                <span>${saleData.balance >= 0 ? 'Change' : 'Balance Due'}<span class="ta">${saleData.balance >= 0 ? 'மீதி' : 'பாக்கி'}</span></span>
                 <span class="val">Rs. ${Math.abs(saleData.balance).toFixed(2)}</span>
               </div>
             </div>
@@ -1113,12 +1119,12 @@ export default function POSTerminal() {
             <div class="zigzag bottom"></div>
 
             <div class="footer">
-              <div class="thanks">Thank You!</div>
+              <div class="thanks">Thank You!<span class="ta">நன்றி! மீண்டும் வருக</span></div>
               <div class="stamp">VISIT<br/>AGAIN</div>
               ${returnQrDataUrl ? `
               <div class="return-qr">
                 <img src="${returnQrDataUrl}" alt="Scan to return" />
-                <div class="label">Scan to Return</div>
+                <div class="label">Scan to Return<span class="ta">திருப்பி கொடுக்க ஸ்கேன் செய்யவும்</span></div>
               </div>
               ` : ''}
               <div class="support">Support: ${SUPPORT_PHONE}</div>
