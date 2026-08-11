@@ -4,12 +4,25 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Package, Plus, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X } from "lucide-react";
+import { Package, Plus, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X, Printer } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { QRCodeGenerator } from "@/components/QRCodeGenerator";
+import QRCode from "qrcode";
+import {
+  getFavoriteTemplateId,
+  getTemplateById,
+  getTextScale,
+  getQrScale,
+  QR_LABEL_TEMPLATES,
+  LABEL_W,
+  LABEL_H,
+  COLS,
+  PAGE_W,
+  type QRTemplateItem,
+} from "@/lib/qrLabelTemplates";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -56,8 +69,88 @@ export default function Items() {
   });
   const [tierMinQty, setTierMinQty] = useState("");
   const [tierUnitPrice, setTierUnitPrice] = useState("");
+  const [labelPromptOpen, setLabelPromptOpen] = useState(false);
+  const [labelPromptProduct, setLabelPromptProduct] = useState<{ name: string; price: number; qrCodeNumber: string } | null>(null);
+  const [labelPreviewUrl, setLabelPreviewUrl] = useState("");
+  const [printingLabel, setPrintingLabel] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Generate the QR preview image whenever the auto-label prompt opens for a new product
+  useEffect(() => {
+    if (labelPromptOpen && labelPromptProduct) {
+      QRCode.toDataURL(
+        JSON.stringify({
+          type: "item",
+          item_id: labelPromptProduct.qrCodeNumber,
+          name: labelPromptProduct.name,
+          price: labelPromptProduct.price,
+          currency: "LKR",
+        }),
+        { width: 400, margin: 1, errorCorrectionLevel: "H" }
+      ).then(setLabelPreviewUrl);
+    }
+  }, [labelPromptOpen, labelPromptProduct]);
+
+  const printAutoLabel = () => {
+    if (!labelPromptProduct) return;
+    setPrintingLabel(true);
+    try {
+      const templateId = getFavoriteTemplateId();
+      const template = getTemplateById(templateId);
+      const textScale = getTextScale();
+      const qrScale = getQrScale();
+      const allTemplateCss = QR_LABEL_TEMPLATES.map((t) => t.css).join("\n");
+      const baseLabelCss = `.qr-label-box { width: ${LABEL_W}mm; height: ${LABEL_H}mm; box-sizing: border-box; overflow: hidden; font-family: Arial, Helvetica, sans-serif; background: #fff; }`;
+      const scaleCss = `.qr-label-box { --qr-scale: ${qrScale}; --text-scale: ${textScale}; }`;
+      const templateItem: QRTemplateItem = {
+        name: labelPromptProduct.name,
+        price: labelPromptProduct.price,
+        qrCodeNumber: labelPromptProduct.qrCodeNumber,
+        qrDataUrl: labelPreviewUrl,
+      };
+      const fitName = (name: string) => name;
+      // Two copies (double-sided), same convention as the BarcodePrint page
+      const labelsHtml = `<div class="qr-label-box tpl-${template.id}">${template.renderLabel(templateItem, fitName)}</div>`.repeat(2);
+
+      const printContent = `<!DOCTYPE html>
+<html>
+<head>
+  <title>QR Sticker Print - ${template.name} - ${LABEL_W}x${LABEL_H}mm</title>
+  <style>
+    @page { size: ${PAGE_W}mm ${LABEL_H}mm; margin: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: ${PAGE_W}mm; height: ${LABEL_H}mm; margin: 0 !important; padding: 0 !important;
+      font-family: Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    body { display: grid; grid-template-columns: repeat(${COLS}, ${LABEL_W}mm); grid-auto-rows: ${LABEL_H}mm; gap: 0; overflow: hidden; }
+    .qr-label-box { page-break-inside: avoid; break-inside: avoid; }
+    .qr-label-box img { image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; }
+    ${baseLabelCss}
+    ${allTemplateCss}
+    ${scaleCss}
+  </style>
+</head>
+<body>${labelsHtml}</body>
+</html>`;
+
+      const printWindow = window.open("", "_blank");
+      if (printWindow) {
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        printWindow.onload = () => {
+          setTimeout(() => printWindow.print(), 300);
+        };
+        toast({ title: "Printing label", description: `Using "${template.name}" template on ${LABEL_W}×${LABEL_H}mm thermal roll.` });
+      }
+      setLabelPromptOpen(false);
+      setLabelPromptProduct(null);
+    } finally {
+      setPrintingLabel(false);
+    }
+  };
 
   // Auto-generate QR code number when opening for new product
   useEffect(() => {
@@ -203,25 +296,33 @@ export default function Items() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (vars: { data: any; isNew: boolean }) => {
       if (editingProduct) {
         const { error } = await supabase
           .from("products")
-          .update(data)
+          .update(vars.data)
           .eq("id", editingProduct.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("products").insert(data);
+        const { error } = await supabase.from("products").insert(vars.data);
         if (error) throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (_result, vars) => {
       toast({
-        title: editingProduct ? "Product Updated" : "Product Added",
+        title: vars.isNew ? "Product Added" : "Product Updated",
         description: "Product saved successfully!",
       });
       queryClient.invalidateQueries({ queryKey: ["products-all"] });
       setOpen(false);
+      if (vars.isNew && vars.data.qr_code_number) {
+        setLabelPromptProduct({
+          name: vars.data.name,
+          price: vars.data.price,
+          qrCodeNumber: vars.data.qr_code_number,
+        });
+        setLabelPromptOpen(true);
+      }
       resetForm();
     },
     onError: (error: any) => {
@@ -387,7 +488,7 @@ export default function Items() {
       min_order_qty: parsedMinOrderQty || 1,
     };
 
-    saveMutation.mutate(productData);
+    saveMutation.mutate({ data: productData, isNew: !editingProduct });
   };
 
   return (
@@ -875,6 +976,53 @@ export default function Items() {
           </div>
         </CardContent>
       </Card>
+
+      {/* New Product Auto-Label Prompt */}
+      <Dialog open={labelPromptOpen} onOpenChange={(v) => { setLabelPromptOpen(v); if (!v) setLabelPromptProduct(null); }}>
+        <DialogContent className="glass-card border-border/50 max-w-[380px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5 text-primary" />
+              Print Label Now?
+            </DialogTitle>
+            <DialogDescription>
+              "{labelPromptProduct?.name}" was added. Print its QR/barcode sticker now using your favorite label template, or skip and print later from QR Code Sticker Print.
+            </DialogDescription>
+          </DialogHeader>
+          {labelPromptProduct && (
+            <div className="flex items-center justify-center p-4 bg-white rounded-lg">
+              <div className="text-center space-y-2">
+                {labelPreviewUrl ? (
+                  <img src={labelPreviewUrl} alt="Label QR preview" className="h-28 w-28 mx-auto" />
+                ) : (
+                  <div className="h-28 w-28 mx-auto flex items-center justify-center text-xs text-muted-foreground">Generating...</div>
+                )}
+                <div className="text-xs text-black">
+                  <div className="font-semibold">{labelPromptProduct.name}</div>
+                  <div>LKR {labelPromptProduct.price.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              className="glass border-border/50"
+              onClick={() => { setLabelPromptOpen(false); setLabelPromptProduct(null); }}
+            >
+              Skip
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90"
+              onClick={printAutoLabel}
+              disabled={!labelPreviewUrl || printingLabel}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print Now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
