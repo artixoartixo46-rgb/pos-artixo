@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 import {
   BarChart3,
   TrendingUp,
@@ -19,6 +21,8 @@ import {
   ClipboardList,
   Phone,
   PackageX,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { computeReorderSuggestions, groupSuggestionsByVendor, type ReorderTrend } from "@/lib/reorderSuggestions";
 import {
@@ -97,6 +101,8 @@ function TrendBadge({ trend, trendPct }: { trend: ReorderTrend; trendPct: number
 
 export default function Reports() {
   const [period, setPeriod] = useState<Period>("week");
+  const reportContentRef = useRef<HTMLDivElement>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const periodStart = getPeriodStart(period);
   const [deadStockDays, setDeadStockDays] = useState(60);
 
@@ -277,6 +283,48 @@ export default function Reports() {
     [deadStockProducts]
   );
 
+  // Rasterizes the report content (everything below the period-filter toolbar) into a canvas,
+  // same html2canvas settings as the receipt-image print path elsewhere in the app, then slices
+  // it across as many A4 pages as needed - the full report is comfortably taller than one page.
+  const handleExportPdf = async () => {
+    if (!reportContentRef.current) return;
+    setExportingPdf(true);
+    try {
+      const canvas = await html2canvas(reportContentRef.current, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        logging: false,
+        useCORS: true,
+      });
+      const imgData = canvas.toDataURL("image/png");
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      pdf.save(`artixo-report-${period}-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -292,9 +340,14 @@ export default function Reports() {
               {PERIOD_LABELS[p]}
             </Button>
           ))}
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExportPdf} disabled={exportingPdf}>
+            {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {exportingPdf ? "Exporting..." : "Download PDF"}
+          </Button>
         </div>
       </div>
 
+      <div ref={reportContentRef} className="space-y-6">
       {/* Revenue summary */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="glass-card border-border/50">
@@ -628,6 +681,7 @@ export default function Reports() {
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
