@@ -20,6 +20,10 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "/index.html",
+        // Default is 2 MiB - the jsPDF/html2canvas chunk (used for PDF report export) is
+        // bigger than that on its own, so the Workbox build step needs a higher ceiling or
+        // it hard-fails instead of just skipping the file.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/rest/v1/") || url.hostname.endsWith(".supabase.co"),

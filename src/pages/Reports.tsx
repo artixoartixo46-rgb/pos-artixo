@@ -5,8 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 import {
   BarChart3,
   TrendingUp,
@@ -290,6 +288,10 @@ export default function Reports() {
     if (!reportContentRef.current) return;
     setExportingPdf(true);
     try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
       const canvas = await html2canvas(reportContentRef.current, {
         scale: 2,
         backgroundColor: "#ffffff",
