@@ -159,6 +159,49 @@ export default function Items() {
     return matchesSearch && matchesCategory;
   });
 
+  // CSV escaping: wrap in quotes and double up any embedded quotes, since product names/brands
+  // can legitimately contain commas or quote characters that would otherwise break the columns.
+  const csvCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+  const handleExport = () => {
+    if (!filteredProducts || filteredProducts.length === 0) {
+      toast({ title: "Nothing to export", description: "No products match the current search/filter.", variant: "destructive" });
+      return;
+    }
+    const header = [
+      "Name", "Category", "Sub Category", "Brand", "Barcode", "QR Code Number", "Unit",
+      "Price", "Cost", "Case Size", "Case Price", "Stock Quantity", "Min Stock Level",
+      "Min Order Qty", "Weight Based", "Weight (kg)",
+    ].join(",");
+    const rows = filteredProducts.map((p: any) => [
+      csvCell(p.name),
+      csvCell(p.category),
+      csvCell(p.sub_category),
+      csvCell(p.brand),
+      csvCell(p.barcode),
+      csvCell(p.qr_code_number),
+      csvCell(p.unit_label),
+      p.price ?? "",
+      p.cost ?? "",
+      p.case_size ?? "",
+      p.case_price ?? "",
+      p.stock_quantity ?? "",
+      p.min_stock_level ?? "",
+      p.min_order_qty ?? "",
+      p.is_weight_based ? "Yes" : "No",
+      p.weight_kg ?? "",
+    ].join(","));
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `products_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: `${filteredProducts.length} product(s) exported to CSV.` });
+  };
+
   const saveMutation = useMutation({
     mutationFn: async (data: any) => {
       if (editingProduct) {
@@ -723,7 +766,7 @@ export default function Items() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" className="glass border-border/50">
+            <Button variant="outline" className="glass border-border/50" onClick={handleExport}>
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
