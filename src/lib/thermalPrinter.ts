@@ -18,6 +18,8 @@ export interface ReceiptItem {
   quantity: number;
   price: number;
   unit_label?: string;
+  item_discount?: number;
+  item_discount_type?: "percentage" | "fixed";
 }
 
 export interface ReceiptPrintData {
@@ -218,7 +220,12 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   for (const item of data.items) {
     push(truncate(item.name, width) + "\n");
     const qtyLabel = `${item.quantity}${item.unit_label ? " " + item.unit_label : ""} x ${item.price.toFixed(2)}`;
-    twoCol(qtyLabel, (item.price * item.quantity).toFixed(2));
+    const lineGross = item.price * item.quantity;
+    const itemDiscountAmt = item.item_discount
+      ? Math.max(0, Math.min(item.item_discount_type === "fixed" ? item.item_discount : (lineGross * item.item_discount) / 100, lineGross))
+      : 0;
+    twoCol(qtyLabel, (lineGross - itemDiscountAmt).toFixed(2));
+    if (itemDiscountAmt > 0) twoCol("  Item Discount:", `-${itemDiscountAmt.toFixed(2)}`);
   }
   hr();
 

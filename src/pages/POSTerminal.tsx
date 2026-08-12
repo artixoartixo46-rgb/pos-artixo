@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
 import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
 import {
@@ -55,6 +55,7 @@ import {
   findCachedProductByCode,
 } from "@/lib/offlineDb";
 import { refreshOfflineCache, syncPendingSales } from "@/lib/offlineSync";
+import { getItemDiscountAmount, getLineNetTotal } from "@/lib/cartMath";
 import { WifiOff, RefreshCw } from "lucide-react";
 
 interface PriceTier {
@@ -77,6 +78,8 @@ interface CartItem {
   min_order_qty: number;
   is_weight_based: boolean;
   tiers: PriceTier[];
+  item_discount: number;
+  item_discount_type: DiscountType;
 }
 
 // Given tiers (unsorted ok) and a quantity, return the best applicable unit price
@@ -172,6 +175,7 @@ export default function POSTerminal() {
   const [lastScannedQR, setLastScannedQR] = useState("");
   const [discount, setDiscount] = useState<number>(0);
   const [discountType, setDiscountType] = useState<DiscountType>("percentage");
+  const [editingDiscountLineKey, setEditingDiscountLineKey] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
   const [customerPaidAmount, setCustomerPaidAmount] = useState<number>(0);
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
@@ -359,6 +363,8 @@ export default function POSTerminal() {
         min_order_qty: Number(product.min_order_qty) || 1,
         is_weight_based: !!product.is_weight_based,
         tiers: tiersForProduct(product.id),
+        item_discount: 0,
+        item_discount_type: "percentage" as DiscountType,
       };
       return { ...base, price: computeLinePrice(base, quantity) };
     },
@@ -1022,15 +1028,25 @@ export default function POSTerminal() {
     const formatQty = (item: CartItem) =>
       item.is_weight_based ? item.quantity.toFixed(3) : String(item.quantity);
 
-    const itemsHTML = saleData.items.map((item, idx) => `
+    const itemsHTML = saleData.items.map((item, idx) => {
+      const itemDiscountAmt = getItemDiscountAmount(item);
+      const lineNet = getLineNetTotal(item);
+      return `
       <div class="item">
         <div class="item-name"><span class="item-no">${String(idx + 1).padStart(2, '0')}</span>${item.name}</div>
         <div class="item-row">
           <span class="item-qty">${formatQty(item)}${item.unit_label ? ` ${item.unit_label}` : ''} &times; ${(item.price ?? 0).toFixed(2)}</span>
-          <span class="item-amt">Rs. ${((item.price ?? 0) * item.quantity).toFixed(2)}</span>
+          <span class="item-amt">Rs. ${lineNet.toFixed(2)}</span>
         </div>
+        ${itemDiscountAmt > 0 ? `
+        <div class="item-row" style="color:#b00020;">
+          <span class="item-qty">Item Discount</span>
+          <span class="item-amt">- Rs. ${itemDiscountAmt.toFixed(2)}</span>
+        </div>
+        ` : ''}
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     const receiptHTML = `
       <!DOCTYPE html>
@@ -1223,6 +1239,8 @@ export default function POSTerminal() {
             quantity: item.quantity,
             price: item.price,
             unit_label: item.unit_label,
+            item_discount: item.item_discount,
+            item_discount_type: item.item_discount_type,
           })),
           subtotal: saleData.subtotal,
           discountAmount: saleData.discountAmount,
@@ -1258,7 +1276,7 @@ export default function POSTerminal() {
         throw new Error("Cart is empty");
       }
 
-      const saleSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const saleSubtotal = cart.reduce((sum, item) => sum + getLineNetTotal(item), 0);
       const saleDiscountAmount = discountType === "percentage"
         ? (saleSubtotal * discount) / 100
         : discount;
@@ -1362,8 +1380,8 @@ export default function POSTerminal() {
           product_id: item.product_id,
           product_name: item.name,
           quantity: item.quantity,
-          unit_price: item.price,
-          total_price: item.price * item.quantity,
+          unit_price: item.quantity > 0 ? getLineNetTotal(item) / item.quantity : item.price,
+          total_price: getLineNetTotal(item),
           sold_unit: item.sold_unit,
         }));
 
@@ -1703,7 +1721,19 @@ export default function POSTerminal() {
     setCart(cart.filter((item) => item.line_key !== lineKey));
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  // Per-product discount: independent from the whole-bill Discount field below - e.g. one
+  // damaged/near-expiry item can get 20% off while the rest of the bill is at full price.
+  const updateItemDiscount = (lineKey: string, value: number, type: DiscountType) => {
+    setCart(
+      cart.map((item) =>
+        item.line_key === lineKey
+          ? { ...item, item_discount: Math.max(0, value || 0), item_discount_type: type }
+          : item
+      )
+    );
+  };
+
+  const subtotal = cart.reduce((sum, item) => sum + getLineNetTotal(item), 0);
   const discountAmount = discountType === "percentage" 
     ? (subtotal * discount) / 100 
     : discount;
@@ -2359,10 +2389,18 @@ export default function POSTerminal() {
             </CardHeader>
             <CardContent className="p-4 pt-0">
               <div className={`space-y-2 mb-3 ${cart.length > 3 ? "max-h-[180px] overflow-y-auto pr-1" : ""}`}>
-                {cart.map((item) => (
+                {cart.map((item) => {
+                  const itemDiscountAmt = getItemDiscountAmount(item);
+                  const lineGross = item.price * item.quantity;
+                  const lineNet = lineGross - itemDiscountAmt;
+                  const isEditingDiscount = editingDiscountLineKey === item.line_key;
+                  return (
                   <div
                     key={item.line_key}
-                    className="flex items-center justify-between p-2 glass-card border-border/30"
+                    className="p-2 glass-card border-border/30 space-y-1"
+                  >
+                  <div
+                    className="flex items-center justify-between"
                   >
                     <div className="flex-1">
                       <p className="font-medium text-sm">
@@ -2432,12 +2470,68 @@ export default function POSTerminal() {
                       </Button>
                     </div>
                     <div className="ml-3 text-right">
+                      {itemDiscountAmt > 0 && (
+                        <p className="text-[10px] text-muted-foreground line-through">
+                          Rs. {lineGross.toFixed(2)}
+                        </p>
+                      )}
                       <p className="font-bold text-primary text-sm">
-                        Rs. {item.price ? (Number(item.price) * item.quantity).toFixed(2) : '0.00'}
+                        Rs. {item.price ? lineNet.toFixed(2) : '0.00'}
                       </p>
                     </div>
                   </div>
-                ))}
+
+                  <div className="flex items-center justify-between gap-2 pl-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditingDiscountLineKey(isEditingDiscount ? null : item.line_key)}
+                      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                    >
+                      <Percent className="h-3 w-3" />
+                      {itemDiscountAmt > 0 ? `Discount: -Rs. ${itemDiscountAmt.toFixed(2)}` : "Add discount"}
+                    </button>
+                    {item.item_discount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateItemDiscount(item.line_key, 0, item.item_discount_type)}
+                        className="text-[11px] text-red-400 hover:text-red-500"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  {isEditingDiscount && (
+                    <div className="flex gap-1.5 items-center pt-0.5">
+                      <select
+                        value={item.item_discount_type}
+                        onChange={(e) => updateItemDiscount(item.line_key, item.item_discount, e.target.value as DiscountType)}
+                        className="glass border-border/50 rounded-md px-1.5 h-7 text-xs bg-background/50"
+                      >
+                        <option value="percentage">%</option>
+                        <option value="fixed">Rs.</option>
+                      </select>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={item.item_discount || ""}
+                        placeholder="0"
+                        onChange={(e) => updateItemDiscount(item.line_key, Number(e.target.value) || 0, item.item_discount_type)}
+                        className="glass border-border/50 h-7 text-xs flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs glass px-2"
+                        onClick={() => setEditingDiscountLineKey(null)}
+                      >
+                        Done
+                      </Button>
+                    </div>
+                  )}
+                  </div>
+                  );
+                })}
                 {cart.length === 0 && (
                   <p className="text-center text-muted-foreground text-sm py-3">
                     Cart is empty. Add products to start.
@@ -2833,13 +2927,20 @@ export default function POSTerminal() {
 
         {/* Items */}
         {cart.map((item, index) => (
-          <div key={index} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1mm' }}>
-            <span style={{ width: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.name}
-            </span>
-            <span style={{ width: '15%', textAlign: 'center' }}>{item.quantity}</span>
-            <span style={{ width: '20%', textAlign: 'right' }}>{(item.price ?? 0).toFixed(2)}</span>
-            <span style={{ width: '20%', textAlign: 'right' }}>{((item.price ?? 0) * item.quantity).toFixed(2)}</span>
+          <div key={index} style={{ marginBottom: '1mm' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ width: '45%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.name}
+              </span>
+              <span style={{ width: '15%', textAlign: 'center' }}>{item.quantity}</span>
+              <span style={{ width: '20%', textAlign: 'right' }}>{(item.price ?? 0).toFixed(2)}</span>
+              <span style={{ width: '20%', textAlign: 'right' }}>{getLineNetTotal(item).toFixed(2)}</span>
+            </div>
+            {getItemDiscountAmount(item) > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', color: '#b00020', fontSize: '9px' }}>
+                <span>- Rs. {getItemDiscountAmount(item).toFixed(2)} discount</span>
+              </div>
+            )}
           </div>
         ))}
 

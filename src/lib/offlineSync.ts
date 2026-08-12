@@ -9,6 +9,7 @@ import {
   removePendingSale,
   type PendingSale,
 } from "@/lib/offlineDb";
+import { getLineNetTotal } from "@/lib/cartMath";
 
 export async function refreshOfflineCache(): Promise<void> {
   const [{ data: products, error: pErr }, { data: tiers, error: tErr }] = await Promise.all([
@@ -63,15 +64,18 @@ async function syncOneSale(sale: PendingSale): Promise<void> {
     if (balanceError) throw balanceError;
   }
 
-  const saleItems = payload.cart.map((item: any) => ({
-    sale_id: insertedSale.id,
-    product_id: item.product_id,
-    product_name: item.name,
-    quantity: item.quantity,
-    unit_price: item.price,
-    total_price: item.price * item.quantity,
-    sold_unit: item.sold_unit,
-  }));
+  const saleItems = payload.cart.map((item: any) => {
+    const netTotal = getLineNetTotal(item);
+    return {
+      sale_id: insertedSale.id,
+      product_id: item.product_id,
+      product_name: item.name,
+      quantity: item.quantity,
+      unit_price: item.quantity > 0 ? netTotal / item.quantity : item.price,
+      total_price: netTotal,
+      sold_unit: item.sold_unit,
+    };
+  });
   const { error: itemsError } = await supabase.from("sale_items").insert(saleItems);
   if (itemsError) throw itemsError;
 
