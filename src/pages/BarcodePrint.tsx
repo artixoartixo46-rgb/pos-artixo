@@ -47,10 +47,7 @@ export default function BarcodePrint() {
 
   // Generate a sample QR once, used for template preview cards when the queue is empty
   useEffect(() => {
-    QRCode.toDataURL(
-      JSON.stringify({ type: "item", item_id: "000001", name: "Sample Product", price: 250, currency: "LKR" }),
-      { width: 400, margin: 1, errorCorrectionLevel: "H" }
-    ).then(setSampleQrUrl);
+    QRCode.toDataURL("000001", { width: 400, margin: 1, errorCorrectionLevel: "H" }).then(setSampleQrUrl);
   }, []);
 
   const chooseTemplate = (id: string) => {
@@ -102,15 +99,15 @@ export default function BarcodePrint() {
     enabled: searchQuery.length > 0,
   });
 
-  const generateQRDataUrl = async (qrCodeNumber: string, name: string, price: number) => {
-    const qrData = JSON.stringify({
-      type: "item",
-      item_id: qrCodeNumber,
-      name,
-      price,
-      currency: "LKR",
-    });
-    return QRCode.toDataURL(qrData, { width: 400, margin: 1, errorCorrectionLevel: "H" });
+  // Printed labels encode just the plain qr_code_number - no JSON. Hardware keyboard-wedge
+  // scanners emulate keystrokes, and if the scanner's configured HID keyboard layout doesn't
+  // match the OS input language, JSON punctuation (quotes/colons/braces) can arrive corrupted -
+  // the scanner still beeps (optical decode succeeded) but the app can't parse the result, so
+  // nothing gets added to the cart. Plain digits are immune to this since number keys are
+  // consistent across virtually every keyboard layout, and handleQRScan in POSTerminal.tsx
+  // already has a dedicated fallback path for this exact plain-number format.
+  const generateQRDataUrl = async (qrCodeNumber: string, _name: string, _price: number) => {
+    return QRCode.toDataURL(String(qrCodeNumber), { width: 400, margin: 1, errorCorrectionLevel: "H" });
   };
 
   // Every template's name/line element already has white-space:nowrap + overflow:hidden +

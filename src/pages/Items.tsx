@@ -76,19 +76,12 @@ export default function Items() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Generate the QR preview image whenever the auto-label prompt opens for a new product
+  // Generate the QR preview image whenever the auto-label prompt opens for a new product.
+  // Encoded as just the plain qr_code_number - see comment in BarcodePrint.tsx's
+  // generateQRDataUrl for why (hardware scanner keyboard-layout corruption of JSON punctuation).
   useEffect(() => {
     if (labelPromptOpen && labelPromptProduct) {
-      QRCode.toDataURL(
-        JSON.stringify({
-          type: "item",
-          item_id: labelPromptProduct.qrCodeNumber,
-          name: labelPromptProduct.name,
-          price: labelPromptProduct.price,
-          currency: "LKR",
-        }),
-        { width: 400, margin: 1, errorCorrectionLevel: "H" }
-      ).then(setLabelPreviewUrl);
+      QRCode.toDataURL(String(labelPromptProduct.qrCodeNumber), { width: 400, margin: 1, errorCorrectionLevel: "H" }).then(setLabelPreviewUrl);
     }
   }, [labelPromptOpen, labelPromptProduct]);
 

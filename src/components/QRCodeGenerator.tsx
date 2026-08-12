@@ -8,19 +8,16 @@ interface QRCodeGeneratorProps {
   size?: number;
 }
 
-// Generate compact JSON for QR code content
-export function generateQRContent(qrCodeNumber: string, itemName: string, price: number, sku?: string): string {
-  const qrData = {
-    type: "item",
-    item_id: qrCodeNumber,
-    name: itemName,
-    price: price,
-    currency: "LKR",
-    sku: sku || "",
-    qty: 1,
-    timestamp: Math.floor(Date.now() / 1000)
-  };
-  return JSON.stringify(qrData);
+// QR code content for printed item labels: just the plain qr_code_number digits, no JSON.
+// Hardware barcode/QR scanners "type" the decoded content via keyboard-emulation (HID), and if
+// the scanner's configured keyboard layout doesn't match the OS input language, punctuation like
+// quotes/colons/braces can come through as the wrong character - corrupting JSON so it silently
+// fails to parse (the scanner still beeps because *optical* decoding succeeded, but the app never
+// recognizes the garbled text). Plain digits are immune to this since the top-row number keys
+// produce the same character across virtually every keyboard layout. handleQRScan in
+// POSTerminal.tsx already has a dedicated fallback for exactly this plain-number format.
+export function generateQRContent(qrCodeNumber: string, _itemName?: string, _price?: number, _sku?: string): string {
+  return String(qrCodeNumber);
 }
 
 export function QRCodeGenerator({ qrCodeNumber, itemName, price, sku, size = 60 }: QRCodeGeneratorProps) {
