@@ -23,6 +23,7 @@ import BarcodePrint from "./pages/BarcodePrint";
 import CreditPurchaseHistory from "./pages/CreditPurchaseHistory";
 import VendorCheckIn from "./pages/VendorCheckIn";
 import Catalog from "./pages/Catalog";
+import DigitalReceipt from "./pages/DigitalReceipt";
 import DemandForecast from "./pages/DemandForecast";
 import NotFound from "./pages/NotFound";
 
@@ -59,6 +60,9 @@ const App = () => {
               the receiving-counter QR, no login involved. */}
           <Route path="/vendor-checkin" element={<VendorCheckIn />} />
           <Route path="/catalog" element={<Catalog />} />
+          {/* Standalone, no Layout/sidebar - customer's own phone lands here after scanning
+              the "Digital Receipt" QR shown at checkout, no login involved. */}
+          <Route path="/receipt/:invoiceNumber" element={<DigitalReceipt />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -6,6 +6,7 @@ const DEVICE_STORAGE_KEY = "artixo_thermal_printer_device";
 const WIDTH_STORAGE_KEY = "artixo_thermal_printer_width";
 const AUTO_PRINT_STORAGE_KEY = "artixo_thermal_printer_auto";
 const AUTO_DRAWER_STORAGE_KEY = "artixo_thermal_printer_auto_drawer";
+const DIGITAL_RECEIPT_STORAGE_KEY = "artixo_digital_receipt_mode";
 
 export interface SavedPrinterInfo {
   vendorId: number;
@@ -75,6 +76,17 @@ export function isAutoOpenDrawerEnabled(): boolean {
 
 export function setAutoOpenDrawerEnabled(enabled: boolean) {
   localStorage.setItem(AUTO_DRAWER_STORAGE_KEY, enabled ? "1" : "0");
+}
+
+// When on, a completed sale skips the paper receipt (thermal or browser-print) and instead
+// shows a QR code the customer scans with their own phone to view the bill - saves paper.
+// Manual "Digital Receipt" / "Print" buttons in POS Terminal still work regardless of this.
+export function isDigitalReceiptModeEnabled(): boolean {
+  return localStorage.getItem(DIGITAL_RECEIPT_STORAGE_KEY) === "1";
+}
+
+export function setDigitalReceiptModeEnabled(enabled: boolean) {
+  localStorage.setItem(DIGITAL_RECEIPT_STORAGE_KEY, enabled ? "1" : "0");
 }
 
 export function forgetPrinter() {

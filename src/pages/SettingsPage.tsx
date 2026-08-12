@@ -25,6 +25,8 @@ import {
   setAutoDirectPrintEnabled,
   isAutoOpenDrawerEnabled,
   setAutoOpenDrawerEnabled,
+  isDigitalReceiptModeEnabled,
+  setDigitalReceiptModeEnabled,
   openCashDrawer,
   printTestReceipt,
 } from "@/lib/thermalPrinter";
@@ -99,6 +101,7 @@ export default function SettingsPage() {
   const [paperWidth, setPaperWidthState] = useState<58 | 80>(getPaperWidth());
   const [autoDirectPrint, setAutoDirectPrintState] = useState(isAutoDirectPrintEnabled());
   const [autoOpenDrawer, setAutoOpenDrawerState] = useState(isAutoOpenDrawerEnabled());
+  const [digitalReceiptMode, setDigitalReceiptModeState] = useState(isDigitalReceiptModeEnabled());
   const [connecting, setConnecting] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
   const [openingDrawer, setOpeningDrawer] = useState(false);
@@ -477,6 +480,19 @@ export default function SettingsPage() {
                   onCheckedChange={(checked) => {
                     setAutoOpenDrawerState(checked);
                     setAutoOpenDrawerEnabled(checked);
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between glass-card border-border/50 rounded-md px-3 mt-2">
+                <Label htmlFor="digital-receipt-mode" className="text-sm cursor-pointer">
+                  Digital receipt (QR) instead of printing paper
+                </Label>
+                <Switch
+                  id="digital-receipt-mode"
+                  checked={digitalReceiptMode}
+                  onCheckedChange={(checked) => {
+                    setDigitalReceiptModeState(checked);
+                    setDigitalReceiptModeEnabled(checked);
                   }}
                 />
               </div>

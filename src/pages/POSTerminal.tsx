@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent, QrCode } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
 import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
 import {
@@ -36,6 +36,7 @@ import {
   getSavedPrinterInfo,
   isAutoDirectPrintEnabled,
   isAutoOpenDrawerEnabled,
+  isDigitalReceiptModeEnabled,
   printReceiptDirect,
   openCashDrawer,
   getPaperWidth,
@@ -209,6 +210,9 @@ export default function POSTerminal() {
   } | null>(null);
   const [voiceLanguage, setVoiceLanguage] = useState<string>("en-US");
   const [showVoicePreview, setShowVoicePreview] = useState(false);
+  const [digitalReceiptOpen, setDigitalReceiptOpen] = useState(false);
+  const [digitalReceiptQrUrl, setDigitalReceiptQrUrl] = useState("");
+  const [digitalReceiptLink, setDigitalReceiptLink] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -1213,6 +1217,28 @@ export default function POSTerminal() {
     }, 400);
   };
 
+  // Paper-free alternative to printReceipt(): builds a QR the customer scans with their own
+  // phone to view the bill at /receipt/:invoiceNumber (public page, reads straight from
+  // Supabase). Only works for invoices that have actually been written to the sales table -
+  // offline-queued sales use a local placeholder invoice number until they sync, so callers
+  // should keep using printReceipt() for those.
+  const showDigitalReceipt = async (invoiceNumber: string) => {
+    const link = `${window.location.origin}/receipt/${encodeURIComponent(invoiceNumber)}`;
+    try {
+      const qrUrl = await QRCode.toDataURL(link, { width: 320, margin: 1, errorCorrectionLevel: "M" });
+      setDigitalReceiptQrUrl(qrUrl);
+      setDigitalReceiptLink(link);
+      setDigitalReceiptOpen(true);
+    } catch {
+      toast({
+        title: "Couldn't generate QR",
+        description: "Falling back to printing the receipt instead.",
+        variant: "destructive",
+      });
+      if (lastReceiptData) printReceipt(lastReceiptData);
+    }
+  };
+
   // Prints a sale receipt: direct to a connected USB thermal printer if available/enabled,
   // otherwise falls back to the browser print dialog (and always falls back on any error).
   const printReceipt = async (saleData: {
@@ -1432,8 +1458,14 @@ export default function POSTerminal() {
       // Store last receipt data for reprinting
       setLastReceiptData(data.receiptData);
 
-      // Auto print receipt (works offline too - direct thermal print and browser print both do)
-      printReceipt(data.receiptData);
+      // Auto print receipt (works offline too - direct thermal print and browser print both do) -
+      // unless Digital Receipt mode is on, in which case show a scan-to-view QR instead to save
+      // paper. Offline-queued sales don't have a real invoice in the DB yet, so those still print.
+      if (isDigitalReceiptModeEnabled() && !data.offline) {
+        showDigitalReceipt(data.receiptData.invoiceNumber);
+      } else {
+        printReceipt(data.receiptData);
+      }
 
       // Cash sale + a connected thermal printer with the drawer wired into it + the setting
       // turned on in Settings - pop the drawer so the cashier doesn't need a separate key/button.
@@ -2615,7 +2647,7 @@ export default function POSTerminal() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2 pt-1">
+                <div className="grid grid-cols-2 gap-2 pt-1">
                   <Button
                     variant="outline"
                     className="h-12 border-2 border-border/60 font-bold uppercase tracking-wide text-xs rounded-xl"
@@ -2633,6 +2665,15 @@ export default function POSTerminal() {
                   >
                     <Printer className="h-4 w-4 mr-1" />
                     Reprint
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-12 border-2 border-border/60 font-bold uppercase tracking-wide text-xs rounded-xl"
+                    disabled={!lastReceiptData}
+                    onClick={() => lastReceiptData && showDigitalReceipt(lastReceiptData.invoiceNumber)}
+                  >
+                    <QrCode className="h-4 w-4 mr-1" />
+                    Digital
                   </Button>
                   <Button
                     className="h-12 bg-primary hover:bg-primary/90 text-white font-extrabold uppercase tracking-wide text-xs rounded-xl shadow-[0_6px_20px_-4px_hsl(var(--primary)/0.5)]"
@@ -3008,6 +3049,48 @@ export default function POSTerminal() {
         onConnectBluetooth={handleConnectBluetoothScale}
         onDisconnect={handleDisconnectScale}
       />
+
+      {/* Digital Receipt QR - customer scans with their own phone to view the bill, no paper used */}
+      <Dialog open={digitalReceiptOpen} onOpenChange={setDigitalReceiptOpen}>
+        <DialogContent className="glass-card max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5" />
+              Digital Receipt
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            <p className="text-sm text-muted-foreground text-center">
+              Ask the customer to scan this with their phone camera to view the bill.
+            </p>
+            {digitalReceiptQrUrl && (
+              <img
+                src={digitalReceiptQrUrl}
+                alt="Scan to view digital receipt"
+                className="w-56 h-56 rounded-lg bg-white p-2"
+              />
+            )}
+            {digitalReceiptLink && (
+              <a
+                href={digitalReceiptLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-primary underline break-all text-center"
+              >
+                {digitalReceiptLink}
+              </a>
+            )}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => lastReceiptData && printReceipt(lastReceiptData)}
+            >
+              <Printer className="h-4 w-4 mr-1" />
+              Print Instead
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
