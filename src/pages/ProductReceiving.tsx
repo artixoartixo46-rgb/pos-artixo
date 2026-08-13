@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -11,10 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Truck, ChevronDown, Trash2, PackagePlus, Loader2, QrCode, Inbox, Clock } from "lucide-react";
+import { Plus, Search, Truck, ChevronDown, Trash2, PackagePlus, Loader2, QrCode, Inbox, Clock, ScanBarcode, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import QRCode from "qrcode";
+import { QRScanner } from "@/components/QRScanner";
 
 interface LineItem {
   key: string;
@@ -23,6 +24,40 @@ interface LineItem {
   unit_label: string;
   quantity: string;
   cost_price: string;
+}
+
+// Restock-by-scan: an existing product's own printed QR label (or its barcode) is looked up the
+// same way StockTake does it - by barcode first, then by qr_code_number for plain-digit codes -
+// so scanning the label already stuck on the shelf/bin instantly re-selects that same product
+// here instead of typing its name into the search box again.
+interface ProductLookup {
+  id: string;
+  name: string;
+  barcode: string | null;
+  unit_label: string | null;
+  cost: number | null;
+}
+
+async function lookupProductByCode(code: string): Promise<ProductLookup | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+
+  const { data: byBarcode } = await supabase
+    .from("products")
+    .select("id, name, barcode, unit_label, cost")
+    .eq("barcode", trimmed)
+    .limit(1);
+  if (byBarcode && byBarcode.length > 0) return byBarcode[0];
+
+  if (/^\d+$/.test(trimmed)) {
+    const { data: byQr } = await supabase
+      .from("products")
+      .select("id, name, barcode, unit_label, cost")
+      .eq("qr_code_number", trimmed)
+      .limit(1);
+    if (byQr && byQr.length > 0) return byQr[0];
+  }
+  return null;
 }
 
 export default function ProductReceiving() {
@@ -45,6 +80,14 @@ export default function ProductReceiving() {
   const [activeCheckinId, setActiveCheckinId] = useState<string | null>(null);
   const [checkinQrOpen, setCheckinQrOpen] = useState(false);
   const [checkinQrDataUrl, setCheckinQrDataUrl] = useState("");
+
+  // Restock-by-scan: scan a product's existing QR label/barcode to pull it straight into the
+  // "Add Item" row instead of searching by name - works with a hardware keyboard-wedge scanner
+  // (types into scanInput + Enter) or the phone/webcam camera via the QRScanner dialog.
+  const [scanInput, setScanInput] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef = useRef<HTMLInputElement>(null);
 
   const { data: vendors } = useQuery({
     queryKey: ["vendors-for-receiving"],
@@ -125,6 +168,7 @@ export default function ProductReceiving() {
     setPendingCost("");
     setProductSearchTerm("");
     setActiveCheckinId(null);
+    setScanInput("");
   };
 
   // Pulls a vendor's self-reported QR check-in into the normal receiving form so staff can
@@ -182,6 +226,34 @@ export default function ProductReceiving() {
       setIsDialogOpen(false);
       resetForm();
     }
+  };
+
+  // Scanning a product's QR label/barcode pulls it straight into the "Add Item" picker - cost
+  // pre-fills from that product's last known cost (editable), and focus jumps to Qty so staff
+  // can just type the received quantity and hit Add, no name search needed for a re-stock.
+  const scanMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const product = await lookupProductByCode(code);
+      if (!product) throw new Error(`No product found for "${code}"`);
+      return product;
+    },
+    onSuccess: (product) => {
+      setPendingProduct({ id: product.id, name: product.name, unit_label: product.unit_label || "pcs", cost: product.cost });
+      setPendingCost(product.cost != null ? String(product.cost) : "");
+      setScanInput("");
+      toast.success(`${product.name} - enter quantity received`);
+      qtyInputRef.current?.focus();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Scan failed");
+      setScanInput("");
+      scanInputRef.current?.focus();
+    },
+  });
+
+  const handleScanSubmit = () => {
+    if (!scanInput.trim() || scanMutation.isPending) return;
+    scanMutation.mutate(scanInput);
   };
 
   const addLineItem = () => {
@@ -493,6 +565,35 @@ export default function ProductReceiving() {
 
             <div className="glass-card border-border/50 rounded-lg p-4 space-y-3">
               <Label className="text-xs uppercase tracking-wide text-muted-foreground">Add Item</Label>
+
+              {/* Restock by scan: scan an already-printed QR label/barcode for a product that's
+                  come back for restock and it drops straight into the picker below - a hardware
+                  wedge scanner just needs this input focused (types the code + Enter), or use
+                  the Camera button for a phone/webcam scan. */}
+              <div className="flex gap-2">
+                <Input
+                  ref={scanInputRef}
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleScanSubmit();
+                    }
+                  }}
+                  placeholder="Scan product QR/barcode to restock..."
+                  className="glass-input border-border/50"
+                  autoFocus
+                />
+                <Button type="button" variant="outline" onClick={() => setCameraOpen(true)} className="gap-1.5 shrink-0">
+                  <Camera className="h-4 w-4" /> Camera
+                </Button>
+                <Button type="button" onClick={handleScanSubmit} disabled={scanMutation.isPending} className="gap-1.5 shrink-0">
+                  {scanMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanBarcode className="h-4 w-4" />}
+                  Scan
+                </Button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_140px_auto] gap-3 items-end">
                 <div className="space-y-1.5">
                   <Popover open={productSearchOpen} onOpenChange={setProductSearchOpen}>
@@ -537,6 +638,7 @@ export default function ProductReceiving() {
                   </Popover>
                 </div>
                 <Input
+                  ref={qtyInputRef}
                   type="number"
                   placeholder="Qty"
                   value={pendingQty}
@@ -636,6 +738,15 @@ export default function ProductReceiving() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <QRScanner
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onScan={(data) => {
+          setCameraOpen(false);
+          scanMutation.mutate(data);
+        }}
+      />
     </div>
   );
 }
