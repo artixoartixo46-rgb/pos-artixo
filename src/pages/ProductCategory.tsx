@@ -118,7 +118,7 @@ export default function ProductCategory() {
           </h1>
           <p className="text-muted-foreground mt-2">Manage product categories</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={handleDialogClose}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => (open ? setIsDialogOpen(true) : handleDialogClose())}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
