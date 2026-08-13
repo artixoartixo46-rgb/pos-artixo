@@ -5,10 +5,47 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Search, Plus, Minus, X, ShoppingBag, QrCode, Loader2 } from "lucide-react";
+import { Search, Plus, Minus, X, ShoppingBag, QrCode, Loader2, ScanLine } from "lucide-react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import artixoLogo from "@/assets/artixo-logo.png";
+import { QRScanner } from "@/components/QRScanner";
+
+// Scan-to-add: a customer can point their own phone camera at a product's shelf QR label
+// (or barcode) instead of typing its name - same barcode-first / qr_code_number-fallback lookup
+// used by Product Receiving and Stock Take, done here as a standalone public/anon query since
+// this page has no login and only needs the handful of fields it already shows.
+interface CatalogProductLookup {
+  id: string;
+  name: string;
+  price: number;
+  unit_label: string | null;
+  category: string | null;
+  stock_quantity: number | null;
+  min_stock_level: number | null;
+}
+
+async function lookupCatalogProductByCode(code: string): Promise<CatalogProductLookup | null> {
+  const trimmed = code.trim();
+  if (!trimmed) return null;
+
+  const { data: byBarcode } = await supabase
+    .from("products")
+    .select("id, name, price, unit_label, category, stock_quantity, min_stock_level")
+    .eq("barcode", trimmed)
+    .limit(1);
+  if (byBarcode && byBarcode.length > 0) return byBarcode[0];
+
+  if (/^\d+$/.test(trimmed)) {
+    const { data: byQr } = await supabase
+      .from("products")
+      .select("id, name, price, unit_label, category, stock_quantity, min_stock_level")
+      .eq("qr_code_number", trimmed)
+      .limit(1);
+    if (byQr && byQr.length > 0) return byQr[0];
+  }
+  return null;
+}
 
 interface ListEntry {
   product_id: string;
@@ -37,6 +74,8 @@ export default function Catalog() {
   const [listOpen, setListOpen] = useState(false);
   const [checkoutQrUrl, setCheckoutQrUrl] = useState("");
   const [generatingQr, setGeneratingQr] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanLookingUp, setScanLookingUp] = useState(false);
 
   const { data: categories } = useQuery({
     queryKey: ["catalog-categories"],
@@ -80,6 +119,28 @@ export default function Catalog() {
         },
       };
     });
+  };
+
+  const handleScanResult = async (code: string) => {
+    setScanLookingUp(true);
+    try {
+      const product = await lookupCatalogProductByCode(code);
+      if (!product) {
+        toast.error("Couldn't find that product - try searching by name instead.");
+        return;
+      }
+      const status = stockStatus(product.stock_quantity, product.min_stock_level);
+      if (status.label === "Out of Stock") {
+        toast.error(`${product.name} is currently out of stock.`);
+        return;
+      }
+      addToList(product);
+      toast.success(`${product.name} added to your list`);
+    } catch {
+      toast.error("Scan lookup failed - please try again.");
+    } finally {
+      setScanLookingUp(false);
+    }
   };
 
   const changeQty = (productId: string, delta: number) => {
@@ -134,14 +195,25 @@ export default function Catalog() {
             <p className="text-xs text-muted-foreground">Search products, check prices &amp; availability</p>
           </div>
         </div>
-        <div className="max-w-2xl mx-auto mt-3 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search products..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 h-11"
-          />
+        <div className="max-w-2xl mx-auto mt-3 flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 h-11"
+            />
+          </div>
+          <Button
+            variant="outline"
+            className="h-11 px-3 gap-1.5 shrink-0"
+            onClick={() => setScannerOpen(true)}
+            disabled={scanLookingUp}
+          >
+            {scanLookingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+            Scan
+          </Button>
         </div>
         {categories && categories.length > 0 && (
           <div className="max-w-2xl mx-auto mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -275,6 +347,15 @@ export default function Catalog() {
           )}
         </DialogContent>
       </Dialog>
+
+      <QRScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(data) => {
+          setScannerOpen(false);
+          handleScanResult(data);
+        }}
+      />
     </div>
   );
 }
