@@ -131,11 +131,19 @@ export async function computeReorderSuggestions(): Promise<ReorderSuggestion[]> 
 
     let suggestedQty: number;
     if (effectiveAvgDailyQty > 0) {
-      suggestedQty = Math.max(0, Math.ceil(effectiveAvgDailyQty * TARGET_DAYS_OF_STOCK) - stock);
+      suggestedQty = Math.ceil(effectiveAvgDailyQty * TARGET_DAYS_OF_STOCK) - stock;
     } else {
       // No recent sales data to size a suggestion from - just top back up above the min level.
-      suggestedQty = Math.max(0, Math.ceil(minStock * 2 - stock));
+      suggestedQty = Math.ceil(minStock * 2 - stock);
     }
+    // A product sitting at/below its min-stock safety buffer should always get suggested a
+    // top-up back above that buffer, even if it happens to be a slow mover whose velocity-based
+    // target comes out lower (or negative) than current stock - that's the whole point of the
+    // min-stock field, and it shouldn't get silently dropped just because it sells slowly.
+    if (belowMin) {
+      suggestedQty = Math.max(suggestedQty, Math.ceil(minStock * 2 - stock));
+    }
+    suggestedQty = Math.max(0, suggestedQty);
     if (suggestedQty <= 0) continue;
 
     const caseSize = p.case_size ? Number(p.case_size) : null;
