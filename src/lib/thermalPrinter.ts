@@ -1,6 +1,8 @@
 // Direct ESC/POS thermal printer support over WebUSB.
 // Works in Chrome/Edge only (WebUSB isn't supported in Safari/Firefox) - callers should
 // always fall back to the existing browser print-dialog flow if this isn't available.
+import QRCode from "qrcode";
+import artixoLogo from "@/assets/artixo-logo.png";
 
 const DEVICE_STORAGE_KEY = "artixo_thermal_printer_device";
 const WIDTH_STORAGE_KEY = "artixo_thermal_printer_width";
@@ -277,6 +279,235 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
 
 export async function printReceiptDirect(data: ReceiptPrintData): Promise<void> {
   await sendBytes(buildReceiptBytes(data));
+}
+
+// Browser print-dialog fallback, used both by the live POS checkout flow and by "reprint"
+// callers elsewhere (Dashboard's Recent Sales, Purchase History, etc.) that only have the
+// already-saved sale/sale_items rows to work with, not a live cart. Marked "REPRINT" in the
+// header so it's never mistaken for the original ticket.
+export async function printReceiptInBrowser(data: ReceiptPrintData, isReprint = false): Promise<void> {
+  const printWindow = window.open("", "_blank", "width=320,height=600");
+  if (!printWindow) {
+    throw new Error("Popup blocked - please allow popups to print the receipt.");
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-GB");
+  const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const widthMm = getPaperWidth();
+  const logoUrl = artixoLogo.startsWith("http") ? artixoLogo : `${window.location.origin}${artixoLogo}`;
+  const businessName = data.businessName || "Artixo POS";
+
+  const returnUrl = `${window.location.origin}/returns?invoice=${encodeURIComponent(data.invoiceNumber)}`;
+  const returnQrDataUrl = await QRCode.toDataURL(returnUrl, { width: 200, margin: 1, errorCorrectionLevel: "M" }).catch(() => "");
+
+  const itemsHTML = data.items
+    .map((item, idx) => {
+      const lineGross = item.quantity * item.price;
+      const itemDiscountAmt = item.item_discount
+        ? item.item_discount_type === "percentage"
+          ? (lineGross * item.item_discount) / 100
+          : item.item_discount
+        : 0;
+      const lineNet = lineGross - itemDiscountAmt;
+      return `
+      <div class="item">
+        <div class="item-name"><span class="item-no">${String(idx + 1).padStart(2, "0")}</span>${item.name}</div>
+        <div class="item-row">
+          <span class="item-qty">${item.quantity}${item.unit_label ? ` ${item.unit_label}` : ""} &times; ${item.price.toFixed(2)}</span>
+          <span class="item-amt">Rs. ${lineNet.toFixed(2)}</span>
+        </div>
+        ${itemDiscountAmt > 0 ? `
+        <div class="item-row" style="color:#b00020;">
+          <span class="item-qty">Item Discount</span>
+          <span class="item-amt">- Rs. ${itemDiscountAmt.toFixed(2)}</span>
+        </div>
+        ` : ""}
+      </div>
+    `;
+    })
+    .join("");
+
+  const receiptHTML = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Receipt - ${data.invoiceNumber}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          @page { size: ${widthMm}mm auto; margin: 0; }
+          @media print {
+            body { width: ${widthMm}mm; margin: 0; padding: 2mm; }
+          }
+          body {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-weight: 700;
+            font-size: 11px;
+            width: ${widthMm}mm;
+            margin: 0 auto;
+            padding: 3mm;
+            background: #fff;
+            color: #000;
+            line-height: 1.45;
+          }
+          .ticket { border: 2.5px solid #000; padding: 4mm 3mm; }
+          .zigzag { height: 5px; margin: 0 -3mm 6px -3mm; background-image: linear-gradient(135deg, #fff 50%, transparent 50%), linear-gradient(-135deg, #fff 50%, transparent 50%); background-size: 8px 10px; background-position: bottom; background-repeat: repeat-x; background-color: #000; }
+          .zigzag.bottom { margin: 6px -3mm 0 -3mm; }
+          .header { text-align: center; margin-bottom: 8px; }
+          .header img { width: 16mm; height: auto; margin: 0 auto 3px auto; display: block; }
+          .header h1 { font-size: 17px; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 3px; }
+          .header .tagline { display: inline-block; font-size: 8px; font-weight: 800; color: #fff; background: #000; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 8px; margin-bottom: 4px; }
+          .header .reprint-badge { display: inline-block; font-size: 8px; font-weight: 900; color: #fff; background: #b00020; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 8px; margin: 0 0 4px 4px; }
+          .header p { font-size: 9.5px; font-weight: 700; color: #000; }
+          .divider-stars { text-align: center; font-size: 10px; font-weight: 900; letter-spacing: 3px; margin: 7px 0; }
+          .divider { border-top: 2px dashed #000; margin: 7px 0; }
+          .info-row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 10.5px; font-weight: 700; }
+          .info-row .val { font-weight: 900; }
+          .items-head { display: flex; justify-content: space-between; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; background: #000; color: #fff; padding: 3px 4px; margin-bottom: 6px; }
+          .items { margin: 6px 0; }
+          .item { margin-bottom: 6px; }
+          .item-no { display: inline-block; font-weight: 900; color: #fff; background: #000; font-size: 8px; padding: 1px 4px; border-radius: 3px; margin-right: 5px; }
+          .item-name { font-size: 11.5px; font-weight: 800; }
+          .item-row { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; color: #000; margin-top: 2px; padding-left: 20px; }
+          .item-amt { font-weight: 900; }
+          .totals .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 11px; font-weight: 800; }
+          .totals .discount { color: #b00020; }
+          .totals .grand { font-size: 16px; font-weight: 900; background: #000; color: #fff; padding: 6px 5px; margin-top: 6px; letter-spacing: 0.5px; }
+          .payment { margin: 8px 0; }
+          .payment .badge { display: inline-block; font-weight: 900; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.5px; border: 2px solid #000; padding: 1px 8px; border-radius: 10px; }
+          .payment .due { font-weight: 900; font-size: 13px; border-top: 2px solid #000; padding-top: 4px; margin-top: 4px; }
+          .footer { text-align: center; margin-top: 14px; font-size: 10px; font-weight: 700; }
+          .footer .thanks { font-weight: 900; font-size: 14px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+          .footer .stamp { display: inline-block; border: 2px solid #000; border-radius: 50%; padding: 6px 10px; font-weight: 900; font-size: 9px; letter-spacing: 1px; transform: rotate(-6deg); margin: 4px 0; }
+          .footer .return-qr { margin: 8px 0 2px 0; }
+          .footer .return-qr img { width: 20mm; height: 20mm; image-rendering: pixelated; }
+          .footer .return-qr .label { font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+          .footer .support { font-size: 9.5px; font-weight: 700; color: #000; margin-top: 6px; }
+          .footer .powered { font-size: 8.5px; font-weight: 800; color: #000; margin-top: 8px; letter-spacing: 0.6px; }
+        </style>
+      </head>
+      <body>
+        <div class="ticket">
+          <div class="header">
+            <img src="${logoUrl}" alt="Artixo" />
+            <h1>${businessName}</h1>
+            <div class="tagline">Wholesale Grocery POS</div>${isReprint ? '<span class="reprint-badge">Reprint</span>' : ""}
+            ${data.businessAddress ? `<p>${data.businessAddress}</p>` : ""}
+            ${data.businessPhone ? `<p>${data.businessPhone}</p>` : ""}
+          </div>
+
+          <div class="zigzag"></div>
+
+          <div class="info">
+            <div class="info-row">
+              <span>Invoice</span>
+              <span class="val">${data.invoiceNumber}</span>
+            </div>
+            <div class="info-row">
+              <span>${isReprint ? "Reprinted On" : "Date"}</span>
+              <span class="val">${dateStr}&nbsp;&nbsp;${timeStr}</span>
+            </div>
+            ${data.customerName ? `
+            <div class="info-row">
+              <span>Customer</span>
+              <span class="val">${data.customerName}</span>
+            </div>
+            ` : ""}
+          </div>
+
+          <div class="divider-stars">&#9670; &#9670; &#9670; &#9670; &#9670; &#9670; &#9670;</div>
+
+          <div class="items">
+            <div class="items-head">
+              <span>Item</span>
+              <span>Amount</span>
+            </div>
+            ${itemsHTML}
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="totals">
+            <div class="row">
+              <span>Subtotal</span>
+              <span>Rs. ${data.subtotal.toFixed(2)}</span>
+            </div>
+            ${data.discountAmount > 0 ? `
+            <div class="row discount">
+              <span>Discount</span>
+              <span>- Rs. ${data.discountAmount.toFixed(2)}</span>
+            </div>
+            ` : ""}
+            <div class="row grand">
+              <span>TOTAL</span>
+              <span>Rs. ${data.total.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="payment">
+            <div class="info-row">
+              <span>Paid By</span>
+              <span class="badge">${data.paymentMethod}</span>
+            </div>
+            <div class="info-row">
+              <span>Paid Amount</span>
+              <span class="val">Rs. ${data.paidAmount.toFixed(2)}</span>
+            </div>
+            <div class="info-row due">
+              <span>${data.balance >= 0 ? "Change" : "Balance Due"}</span>
+              <span class="val">Rs. ${Math.abs(data.balance).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div class="zigzag bottom"></div>
+
+          <div class="footer">
+            <div class="thanks">Thank You!</div>
+            <div class="stamp">VISIT<br/>AGAIN</div>
+            ${returnQrDataUrl ? `
+            <div class="return-qr">
+              <img src="${returnQrDataUrl}" alt="Scan to return" />
+              <div class="label">Scan to Return</div>
+            </div>
+            ` : ""}
+            <div class="support">Support: +94 75 412 0403</div>
+            <div class="powered">POWERED BY ARTIXO POS</div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  printWindow.document.write(receiptHTML);
+  printWindow.document.close();
+
+  printWindow.onload = () => {
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+    }, 200);
+  };
+
+  setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 400);
+}
+
+// One-call "reprint" helper for pages that only have a saved sale/sale_items record (Dashboard's
+// Recent Sales, Purchase History, etc.) rather than a live cart: tries the connected thermal
+// printer first (same as checkout), falls back to the browser print dialog on any failure.
+export async function reprintReceipt(data: ReceiptPrintData): Promise<void> {
+  const canDirectPrint = isWebUSBSupported() && !!getSavedPrinterInfo() && isAutoDirectPrintEnabled();
+  if (canDirectPrint) {
+    try {
+      await printReceiptDirect(data);
+      return;
+    } catch {
+      // fall through to browser print
+    }
+  }
+  await printReceiptInBrowser(data, true);
 }
 
 // Cash drawer kick pulse - the standard ESC/POS "ESC p m t1 t2" real-time drawer command.

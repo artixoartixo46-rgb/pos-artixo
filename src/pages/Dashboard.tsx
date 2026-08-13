@@ -4,15 +4,41 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DollarSign, Package, ShoppingCart, TrendingUp, TrendingDown, AlertTriangle, ClipboardList, ArrowRight, Sparkles, Loader2, Receipt } from "lucide-react";
+import { DollarSign, Package, ShoppingCart, TrendingUp, TrendingDown, AlertTriangle, ClipboardList, ArrowRight, Sparkles, Loader2, Receipt, Printer } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { computeReorderSuggestions } from "@/lib/reorderSuggestions";
+import { reprintReceipt } from "@/lib/thermalPrinter";
+import { toast } from "sonner";
+
+interface SaleRow {
+  id: string;
+  invoice_number: string;
+  sale_date: string;
+  total_amount: number;
+  subtotal: number;
+  discount_amount: number | null;
+  paid_amount: number | null;
+  balance: number | null;
+  payment_method: string;
+  customer_name: string | null;
+}
 
 export default function Dashboard() {
-  const [selectedSale, setSelectedSale] = useState<{ id: string; invoice_number: string; sale_date: string; total_amount: number; payment_method: string } | null>(null);
+  const [selectedSale, setSelectedSale] = useState<SaleRow | null>(null);
+  const [reprinting, setReprinting] = useState(false);
+
+  const { data: shopSettings } = useQuery({
+    queryKey: ["settings-for-dashboard"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("settings").select("business_name, address, phone").limit(1).single();
+      if (error && error.code !== "PGRST116") throw error;
+      return data;
+    },
+  });
 
   const { data: selectedSaleItems, isLoading: selectedSaleItemsLoading } = useQuery({
     queryKey: ["dashboard-sale-items", selectedSale?.id],
@@ -27,6 +53,38 @@ export default function Dashboard() {
     },
     enabled: !!selectedSale?.id,
   });
+
+  const handleReprint = async () => {
+    if (!selectedSale || !selectedSaleItems) return;
+    setReprinting(true);
+    try {
+      await reprintReceipt({
+        businessName: shopSettings?.business_name || undefined,
+        businessAddress: shopSettings?.address || undefined,
+        businessPhone: shopSettings?.phone || undefined,
+        invoiceNumber: selectedSale.invoice_number,
+        items: selectedSaleItems.map((item) => ({
+          name: item.product_name,
+          quantity: Number(item.quantity),
+          price: item.quantity ? Number(item.total_price) / Number(item.quantity) : 0,
+          unit_label: item.sold_unit || undefined,
+        })),
+        subtotal: Number(selectedSale.subtotal),
+        discountAmount: Number(selectedSale.discount_amount || 0),
+        total: Number(selectedSale.total_amount),
+        paidAmount: Number(selectedSale.paid_amount || 0),
+        balance: Number(selectedSale.balance || 0),
+        paymentMethod: selectedSale.payment_method,
+        customerName: selectedSale.customer_name || undefined,
+      });
+      toast.success("Receipt sent to printer");
+    } catch (err: any) {
+      toast.error(err?.message || "Couldn't print - check popup blocker or printer connection.");
+    } finally {
+      setReprinting(false);
+    }
+  };
+
   const { data: todaySales } = useQuery({
     queryKey: ["today-sales"],
     queryFn: async () => {
@@ -531,6 +589,16 @@ export default function Dashboard() {
                 <span className="text-sm text-muted-foreground">Total</span>
                 <span className="font-bold text-lg text-primary">LKR {Number(selectedSale.total_amount).toFixed(2)}</span>
               </div>
+
+              <Button
+                variant="outline"
+                className="w-full gap-1.5"
+                disabled={reprinting || selectedSaleItemsLoading || !selectedSaleItems?.length}
+                onClick={handleReprint}
+              >
+                {reprinting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                Reprint Receipt
+              </Button>
             </div>
           )}
         </DialogContent>
