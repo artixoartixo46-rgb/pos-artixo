@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import QRCodeLib from "qrcode";
 import artixoLogo from "@/assets/artixo-logo.png";
 import {
@@ -233,6 +234,11 @@ export default function SettingsPage() {
   // ---- Full database backup (manual download, separate from the automated Google Sheets sync) ----
   const [backingUp, setBackingUp] = useState(false);
 
+  // ---- Multi-cloud redundancy: on-demand trigger for the backup-redundancy edge function,
+  // which also runs automatically once a day via pg_cron - see the backup_redundancy migration. ----
+  const [cloudBackingUp, setCloudBackingUp] = useState(false);
+  const [lastCloudBackup, setLastCloudBackup] = useState<{ fileName: string; totalRows: number; at: string } | null>(null);
+
   // Every business table worth keeping a copy of. Deliberately excludes catalog_checkout_sessions
   // (short-lived, 2-hour-expiry QR checkout codes - plumbing, not business data).
   const BACKUP_TABLES = [
@@ -287,6 +293,21 @@ export default function SettingsPage() {
       toast.error(err?.message || "Backup failed");
     } finally {
       setBackingUp(false);
+    }
+  };
+
+  const handleCloudBackup = async () => {
+    setCloudBackingUp(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("backup-redundancy", { body: {} });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setLastCloudBackup({ fileName: data.fileName, totalRows: data.totalRows, at: new Date().toISOString() });
+      toast.success(`Cloud backup saved — ${data.totalRows} rows across ${data.tableCount} tables`);
+    } catch (err: any) {
+      toast.error(err?.message || "Cloud backup failed");
+    } finally {
+      setCloudBackingUp(false);
     }
   };
 
@@ -556,10 +577,26 @@ export default function SettingsPage() {
           the automated Google Sheets backup; use it as an extra safety net before major changes, or
           just periodically for peace of mind.
         </p>
-        <Button variant="outline" className="glass gap-2" onClick={handleFullBackup} disabled={backingUp}>
-          <Download className="h-4 w-4" />
-          {backingUp ? "Backing up..." : "Download Full Backup"}
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" className="glass gap-2" onClick={handleFullBackup} disabled={backingUp}>
+            <Download className="h-4 w-4" />
+            {backingUp ? "Backing up..." : "Download Full Backup"}
+          </Button>
+          <Button variant="outline" className="glass gap-2" onClick={handleCloudBackup} disabled={cloudBackingUp}>
+            {cloudBackingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
+            {cloudBackingUp ? "Backing up..." : "Backup to Cloud Now"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground mt-3">
+          "Backup to Cloud Now" saves a redundant snapshot to Supabase Storage - separate from the
+          database itself, so it survives a bad migration or accidental table drop. This also runs
+          automatically every day at 2:00 AM UTC (7:30 AM Sri Lanka time), no action needed.
+          {lastCloudBackup && (
+            <span className="block mt-1 text-primary">
+              Last manual cloud backup: {lastCloudBackup.totalRows} rows, {format(new Date(lastCloudBackup.at), "MMM dd, HH:mm")}
+            </span>
+          )}
+        </p>
       </Card>
 
       <Dialog open={catalogQrOpen} onOpenChange={setCatalogQrOpen}>
