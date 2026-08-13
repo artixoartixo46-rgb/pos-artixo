@@ -2712,10 +2712,34 @@ export default function POSTerminal() {
                   <p className="text-lg font-semibold">{viewCustomer.phone}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-sm text-muted-foreground">Total Credit Balance</p>
-                  <p className="text-2xl font-bold text-destructive">
-                    Rs. {(viewCustomer.outstanding_balance || 0).toFixed(2)}
+                  {/* outstanding_balance is a running ledger of (total invoiced - total paid) for this
+                      customer - positive means they owe the shop, negative means they've paid more
+                      than they've been billed (an advance/store-credit balance, not a debt). Shown
+                      as a bare red negative number this confused staff into thinking something was
+                      wrong, so label + color it explicitly based on which side of zero it's on. */}
+                  <p className="text-sm text-muted-foreground">
+                    {viewCustomer.outstanding_balance > 0
+                      ? "Total Credit Balance (Owed to Shop)"
+                      : viewCustomer.outstanding_balance < 0
+                      ? "Advance Credit (Shop Owes Customer)"
+                      : "Total Credit Balance"}
                   </p>
+                  <p className={`text-2xl font-bold ${
+                    viewCustomer.outstanding_balance > 0
+                      ? "text-destructive"
+                      : viewCustomer.outstanding_balance < 0
+                      ? "text-green-500"
+                      : "text-muted-foreground"
+                  }`}>
+                    Rs. {Math.abs(viewCustomer.outstanding_balance || 0).toFixed(2)}
+                  </p>
+                  {viewCustomer.outstanding_balance < 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This customer paid more than they were billed on a past settlement. It isn't applied
+                      automatically to future purchases - remember to account for it manually next time
+                      they buy on credit.
+                    </p>
+                  )}
                 </div>
               </div>
 
