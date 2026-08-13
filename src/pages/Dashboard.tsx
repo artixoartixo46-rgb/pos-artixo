@@ -1,15 +1,32 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, Package, ShoppingCart, TrendingUp, TrendingDown, AlertTriangle, ClipboardList, ArrowRight, Sparkles } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DollarSign, Package, ShoppingCart, TrendingUp, TrendingDown, AlertTriangle, ClipboardList, ArrowRight, Sparkles, Loader2, Receipt } from "lucide-react";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { computeReorderSuggestions } from "@/lib/reorderSuggestions";
 
 export default function Dashboard() {
+  const [selectedSale, setSelectedSale] = useState<{ id: string; invoice_number: string; sale_date: string; total_amount: number; payment_method: string } | null>(null);
+
+  const { data: selectedSaleItems, isLoading: selectedSaleItemsLoading } = useQuery({
+    queryKey: ["dashboard-sale-items", selectedSale?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sale_items")
+        .select("*")
+        .eq("sale_id", selectedSale!.id)
+        .order("created_at");
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!selectedSale?.id,
+  });
   const { data: todaySales } = useQuery({
     queryKey: ["today-sales"],
     queryFn: async () => {
@@ -345,9 +362,11 @@ export default function Dashboard() {
           <CardContent>
             <div className="space-y-3">
               {recentSales?.map((sale) => (
-                <div
+                <button
                   key={sale.id}
-                  className="flex items-center justify-between p-3 rounded-lg glass-card border border-border/30"
+                  type="button"
+                  onClick={() => setSelectedSale(sale)}
+                  className="w-full flex items-center justify-between p-3 rounded-lg glass-card glass-hover border border-border/30 text-left transition-colors hover:border-primary/40"
                 >
                   <div>
                     <p className="font-medium">{sale.invoice_number}</p>
@@ -359,7 +378,7 @@ export default function Dashboard() {
                     <p className="font-bold text-primary">LKR {Number(sale.total_amount).toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground">{sale.payment_method}</p>
                   </div>
-                </div>
+                </button>
               ))}
               {(!recentSales || recentSales.length === 0) && (
                 <p className="text-center text-muted-foreground py-8">No sales yet</p>
@@ -469,6 +488,53 @@ export default function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* Recent Sales drill-down: tap a sale to see which products were sold in it */}
+      <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
+        <DialogContent className="glass-card max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-primary" />
+              {selectedSale?.invoice_number}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedSale && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>{format(new Date(selectedSale.sale_date), "MMM dd, yyyy HH:mm")}</span>
+                <span>{selectedSale.payment_method}</span>
+              </div>
+
+              {selectedSaleItemsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                </div>
+              ) : !selectedSaleItems || selectedSaleItems.length === 0 ? (
+                <p className="text-center text-muted-foreground text-sm py-6">No line items found for this sale.</p>
+              ) : (
+                <div className="space-y-2">
+                  {selectedSaleItems.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-2.5 rounded-lg glass-card border border-border/30 gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{item.product_name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.quantity}{item.sold_unit ? ` ${item.sold_unit}` : ""} x LKR {(Number(item.total_price) / Number(item.quantity)).toFixed(2)}
+                        </p>
+                      </div>
+                      <p className="font-bold text-primary whitespace-nowrap">LKR {Number(item.total_price).toFixed(2)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="border-t border-border/50 pt-3 flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Total</span>
+                <span className="font-bold text-lg text-primary">LKR {Number(selectedSale.total_amount).toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
