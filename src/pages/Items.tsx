@@ -81,7 +81,7 @@ export default function Items() {
   // generateQRDataUrl for why (hardware scanner keyboard-layout corruption of JSON punctuation).
   useEffect(() => {
     if (labelPromptOpen && labelPromptProduct) {
-      QRCode.toDataURL(String(labelPromptProduct.qrCodeNumber), { width: 400, margin: 1, errorCorrectionLevel: "H" }).then(setLabelPreviewUrl);
+      QRCode.toDataURL(String(labelPromptProduct.qrCodeNumber), { width: 400, margin: 4, errorCorrectionLevel: "H" }).then(setLabelPreviewUrl);
     }
   }, [labelPromptOpen, labelPromptProduct]);
 

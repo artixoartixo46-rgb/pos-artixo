@@ -47,7 +47,7 @@ export default function BarcodePrint() {
 
   // Generate a sample QR once, used for template preview cards when the queue is empty
   useEffect(() => {
-    QRCode.toDataURL("000001", { width: 400, margin: 1, errorCorrectionLevel: "H" }).then(setSampleQrUrl);
+    QRCode.toDataURL("000001", { width: 400, margin: 4, errorCorrectionLevel: "H" }).then(setSampleQrUrl);
   }, []);
 
   const chooseTemplate = (id: string) => {
@@ -106,8 +106,13 @@ export default function BarcodePrint() {
   // nothing gets added to the cart. Plain digits are immune to this since number keys are
   // consistent across virtually every keyboard layout, and handleQRScan in POSTerminal.tsx
   // already has a dedicated fallback path for this exact plain-number format.
+  // margin:4 is the ISO/IEC 18004 spec's recommended quiet zone (in QR modules, not px) - a
+  // camera + software decoder (phone, laptop, the in-app QRScanner) can localize a QR fine even
+  // with a much thinner border, but cheap handheld "universal" laser/CCD scanners rely on that
+  // quiet zone to find the code at all. margin:1 (the old value) scanned fine on-screen/via
+  // camera but silently failed on hardware guns - this is the fix for that.
   const generateQRDataUrl = async (qrCodeNumber: string, _name: string, _price: number) => {
-    return QRCode.toDataURL(String(qrCodeNumber), { width: 400, margin: 1, errorCorrectionLevel: "H" });
+    return QRCode.toDataURL(String(qrCodeNumber), { width: 400, margin: 4, errorCorrectionLevel: "H" });
   };
 
   // Every template's name/line element already has white-space:nowrap + overflow:hidden +
