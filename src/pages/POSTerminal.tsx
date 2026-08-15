@@ -2271,8 +2271,12 @@ export default function POSTerminal() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
+              {/* flex-wrap + a full-width basis for the search field on small screens: without it the
+                  four fixed-width action buttons below (Scan QR / Scale / Hold Bill / Held) refuse to
+                  shrink and squeeze the flex-1 search input down to ~0px on a phone, making it look
+                  broken even though it works fine on a wide laptop screen. */}
+              <div className="flex flex-wrap gap-2">
+                <div className="relative w-full min-w-0 sm:w-auto sm:flex-1 sm:basis-64">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
                   <Input
                     ref={searchInputRef}
@@ -2317,7 +2321,7 @@ export default function POSTerminal() {
                 </div>
                 <Button
                   onClick={() => setQrScannerOpen(true)}
-                  className="bg-primary hover:bg-primary/90"
+                  className="shrink-0 bg-primary hover:bg-primary/90"
                 >
                   <Camera className="h-4 w-4 mr-2" />
                   Scan QR
@@ -2325,7 +2329,7 @@ export default function POSTerminal() {
                 <Button
                   onClick={() => setScaleDialogOpen(true)}
                   variant="outline"
-                  className="glass gap-2"
+                  className="shrink-0 glass gap-2"
                 >
                   <WeightIcon className={`h-4 w-4 ${scaleStatus === "connected" ? "text-green-600" : ""}`} />
                   {scaleStatus === "connected" ? `${scaleReading ? scaleReading.weightKg.toFixed(3) : "0.000"} kg` : "Scale"}
@@ -2333,7 +2337,7 @@ export default function POSTerminal() {
                 <Button
                   onClick={holdCurrentBill}
                   variant="outline"
-                  className="glass gap-2"
+                  className="shrink-0 glass gap-2"
                   disabled={cart.length === 0}
                   title="Park this bill and free up the counter for the next customer"
                 >
@@ -2343,7 +2347,7 @@ export default function POSTerminal() {
                 <Button
                   onClick={() => setHeldBillsOpen(true)}
                   variant="outline"
-                  className="glass gap-2 relative"
+                  className="shrink-0 glass gap-2 relative"
                   title="Resume a previously held bill"
                 >
                   <Clock className="h-4 w-4" />
