@@ -1640,6 +1640,11 @@ export default function POSTerminal() {
     },
   });
 
+  // Uses the functional setCart(prev => ...) form throughout (never reads the `cart` closure
+  // directly) so that a hardware scanner fired rapidly - e.g. scanning several units of the same
+  // product back-to-back - can't lose an increment to a stale-state race: each scan's lookup is
+  // async, so two scans in quick succession can otherwise both compute "existing quantity" from
+  // the same pre-update cart and stomp on each other's result.
   const addToCart = (product: any, mode: "unit" | "case" = "unit") => {
     const isCase = mode === "case" && product.case_size && Number(product.case_size) > 0;
     const isWeightBased = !isCase && !!product.is_weight_based;
@@ -1648,30 +1653,28 @@ export default function POSTerminal() {
     const caseSize = product.case_size ? Number(product.case_size) : undefined;
     const minOrderQty = Number(product.min_order_qty) || 1;
 
-    const existingItem = cart.find((item) => item.line_key === lineKey);
-
-    if (existingItem) {
-      const step = isCase ? (caseSize || 1) : isWeightBased ? 0.1 : 1;
-      const newQuantity = existingItem.quantity + step;
-      setCart(
-        cart.map((item) =>
+    setCart((prevCart) => {
+      const existingItem = prevCart.find((item) => item.line_key === lineKey);
+      if (existingItem) {
+        const step = isCase ? (caseSize || 1) : isWeightBased ? 0.1 : 1;
+        const newQuantity = existingItem.quantity + step;
+        return prevCart.map((item) =>
           item.line_key === lineKey
             ? { ...item, quantity: newQuantity, price: computeLinePrice(item, newQuantity) }
             : item
-        )
-      );
-    } else {
+        );
+      }
       const scaleQty = isWeightBased && scaleStatus === "connected" && scaleReading ? scaleReading.weightKg : null;
       const initialQuantity = isCase
         ? (caseSize || 1)
         : Math.max(minOrderQty, scaleQty && scaleQty > 0 ? scaleQty : isWeightBased ? 0.1 : 1);
-      setCart([...cart, buildCartLine(product, soldUnit, initialQuantity)]);
-    }
+      return [...prevCart, buildCartLine(product, soldUnit, initialQuantity)];
+    });
   };
 
   const updateQuantity = (lineKey: string, change: number) => {
-    setCart(
-      cart
+    setCart((prevCart) =>
+      prevCart
         .map((item) => {
           if (item.line_key !== lineKey) return item;
           const step = item.sold_unit === "case" ? Math.sign(change) * (item.case_size || 1) : change;
@@ -1686,8 +1689,8 @@ export default function POSTerminal() {
 
   const setLineQuantity = (lineKey: string, newQuantity: number) => {
     if (newQuantity < 0) return;
-    setCart(
-      cart.map((item) =>
+    setCart((prevCart) =>
+      prevCart.map((item) =>
         item.line_key === lineKey
           ? { ...item, quantity: newQuantity, price: computeLinePrice(item, newQuantity) }
           : item
@@ -1750,14 +1753,14 @@ export default function POSTerminal() {
   };
 
   const removeFromCart = (lineKey: string) => {
-    setCart(cart.filter((item) => item.line_key !== lineKey));
+    setCart((prevCart) => prevCart.filter((item) => item.line_key !== lineKey));
   };
 
   // Per-product discount: independent from the whole-bill Discount field below - e.g. one
   // damaged/near-expiry item can get 20% off while the rest of the bill is at full price.
   const updateItemDiscount = (lineKey: string, value: number, type: DiscountType) => {
-    setCart(
-      cart.map((item) =>
+    setCart((prevCart) =>
+      prevCart.map((item) =>
         item.line_key === lineKey
           ? { ...item, item_discount: Math.max(0, value || 0), item_discount_type: type }
           : item
