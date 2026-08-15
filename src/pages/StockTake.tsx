@@ -12,6 +12,7 @@ import { ClipboardCheck, Camera, ScanBarcode, CheckCircle2, History, Loader2, Al
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { QRScanner } from "@/components/QRScanner";
+import { useHardwareScanner } from "@/hooks/useHardwareScanner";
 
 interface ProductLookup {
   id: string;
@@ -315,6 +316,18 @@ export default function StockTake() {
     if (!scanInput.trim() || scanMutation.isPending) return;
     scanMutation.mutate(scanInput);
   };
+
+  // Desktop presentation-mount and handheld trigger 2D scanners both work here even if focus has
+  // drifted off the scan box (e.g. staff last tapped the Qty field, a table row, or nothing) -
+  // this catches the scan at the document level regardless of where it lands.
+  useHardwareScanner({
+    enabled: !!activeStockTake && !cameraOpen,
+    ignoreRefs: [scanInputRef],
+    onScan: (code) => {
+      if (scanMutation.isPending) return;
+      scanMutation.mutate(code);
+    },
+  });
 
   return (
     <div className="space-y-6">
