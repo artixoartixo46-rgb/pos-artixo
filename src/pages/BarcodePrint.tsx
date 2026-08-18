@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw } from "lucide-react";
+import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import {
@@ -20,6 +20,13 @@ import {
   MAX_TEXT_SCALE,
   MIN_QR_SCALE,
   MAX_QR_SCALE,
+  getOffsetX,
+  saveOffsetX,
+  getOffsetY,
+  saveOffsetY,
+  MIN_OFFSET_MM,
+  MAX_OFFSET_MM,
+  OFFSET_STEP_MM,
   LABEL_W,
   LABEL_H,
   COLS,
@@ -44,6 +51,8 @@ export default function BarcodePrint() {
   const [sampleQrUrl, setSampleQrUrl] = useState("");
   const [textScale, setTextScale] = useState(getTextScale());
   const [qrScale, setQrScale] = useState(getQrScale());
+  const [offsetX, setOffsetX] = useState(getOffsetX());
+  const [offsetY, setOffsetY] = useState(getOffsetY());
 
   // Generate a sample QR once, used for template preview cards when the queue is empty
   useEffect(() => {
@@ -77,6 +86,29 @@ export default function BarcodePrint() {
     saveTextScale(1);
     saveQrScale(1);
     toast.success("Label size reset to default");
+  };
+
+  // Nudges the whole label grid a fixed amount every print from now on - see the comment on
+  // getOffsetX/getOffsetY in qrLabelTemplates.ts for why this exists instead of relying on the
+  // browser's print-dialog Margins/Scale settings.
+  const adjustOffsetX = (delta: number) => {
+    const next = Math.round(Math.min(MAX_OFFSET_MM, Math.max(MIN_OFFSET_MM, offsetX + delta)) * 10) / 10;
+    setOffsetX(next);
+    saveOffsetX(next);
+  };
+
+  const adjustOffsetY = (delta: number) => {
+    const next = Math.round(Math.min(MAX_OFFSET_MM, Math.max(MIN_OFFSET_MM, offsetY + delta)) * 10) / 10;
+    setOffsetY(next);
+    saveOffsetY(next);
+  };
+
+  const resetOffset = () => {
+    setOffsetX(0);
+    setOffsetY(0);
+    saveOffsetX(0);
+    saveOffsetY(0);
+    toast.success("Print alignment reset to center");
   };
 
   const allTemplateCss = QR_LABEL_TEMPLATES.map((t) => t.css).join("\n");
@@ -179,17 +211,13 @@ export default function BarcodePrint() {
   const totalLabels = printQueue.reduce((sum, item) => sum + item.quantity, 0);
   const totalValue = printQueue.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const handlePrint = () => {
-    if (printQueue.length === 0) {
-      toast.error("No items in print queue");
-      return;
-    }
-
-    const template = getTemplateById(selectedTemplateId);
-
-    // Flatten queue into individual labels (doubled for front+back)
+  // Shared by the real print job and the alignment test print below. The label grid lives in its
+  // own wrapper (.label-grid) with a CSS transform applying the saved X/Y offset - a transform is
+  // purely a paint-time nudge, so it can't interfere with the @page pagination/sizing that makes
+  // multi-row printing on a continuous thermal roll work in the first place.
+  const buildPrintDocument = (items: PrintQueueItem[], template: ReturnType<typeof getTemplateById>) => {
     const allLabels: { item: PrintQueueItem }[] = [];
-    for (const item of printQueue) {
+    for (const item of items) {
       for (let i = 0; i < item.quantity; i++) {
         allLabels.push({ item });
         allLabels.push({ item }); // double-sided
@@ -224,13 +252,14 @@ export default function BarcodePrint() {
       font-family: Arial, Helvetica, sans-serif;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      overflow: hidden;
     }
-    body {
+    .label-grid {
       display: grid;
       grid-template-columns: repeat(${COLS}, ${LABEL_W}mm);
       grid-auto-rows: ${LABEL_H}mm;
       gap: 0;
-      overflow: hidden;
+      transform: translate(${offsetX}mm, ${offsetY}mm);
     }
     .qr-label-box {
       page-break-inside: avoid;
@@ -246,17 +275,53 @@ export default function BarcodePrint() {
     ${scaleCss}
   </style>
 </head>
-<body>${labelsHtml}</body>
+<body><div class="label-grid">${labelsHtml}</div></body>
 </html>`;
 
+    return { printContent, labelCount: allLabels.length };
+  };
+
+  const openPrintWindow = (printContent: string) => {
     const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      printWindow.document.write(printContent);
-      printWindow.document.close();
-      printWindow.onload = () => {
-        setTimeout(() => printWindow.print(), 300);
-      };
-      toast.success(`Printing ${totalLabels} labels using "${template.name}" template on ${LABEL_W}×${LABEL_H}mm thermal roll (${allLabels.length} stickers, double-sided)`);
+    if (!printWindow) return false;
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      setTimeout(() => printWindow.print(), 300);
+    };
+    return true;
+  };
+
+  const handlePrint = () => {
+    if (printQueue.length === 0) {
+      toast.error("No items in print queue");
+      return;
+    }
+
+    const template = getTemplateById(selectedTemplateId);
+    const { printContent, labelCount } = buildPrintDocument(printQueue, template);
+
+    if (openPrintWindow(printContent)) {
+      toast.success(`Printing ${totalLabels} labels using "${template.name}" template on ${LABEL_W}×${LABEL_H}mm thermal roll (${labelCount} stickers, double-sided)`);
+    }
+  };
+
+  // Prints one row (2 labels) of dummy content so the shop can calibrate the offset above against
+  // their actual printer/roll without wasting a real product sticker - print, check against the
+  // physical label edge, nudge, print again, repeat until it lines up.
+  const handleTestPrint = () => {
+    const template = getTemplateById(selectedTemplateId);
+    const testItem: PrintQueueItem = {
+      id: "test",
+      name: "Test Alignment",
+      qrCodeNumber: "000001",
+      price: 100,
+      quantity: 1,
+      qrDataUrl: sampleQrUrl,
+    };
+    const { printContent } = buildPrintDocument([testItem], template);
+    if (openPrintWindow(printContent)) {
+      toast.success("Printing test label - compare it to your sticker roll and nudge the alignment if needed");
     }
   };
 
@@ -399,6 +464,57 @@ export default function BarcodePrint() {
               </Button>
             </div>
           </div>
+        </div>
+      </Card>
+
+      {/* Print alignment calibration — a fixed offset applied inside the printed page itself
+          (not the browser print dialog), so once it's dialed in against the actual printer/roll
+          it never silently drifts again. */}
+      <Card className="glass-card border-border/50 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Crosshair className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">Fix Print Alignment</h2>
+          </div>
+          {(offsetX !== 0 || offsetY !== 0) && (
+            <Button variant="ghost" size="sm" onClick={resetOffset} className="text-xs gap-1 h-7">
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground -mt-2 mb-4">
+          If stickers print off-center or shifted on your label printer, print a test label, check it
+          against the sticker roll, and nudge until it lines up. This offset is saved in the app and
+          applied to every print from now on — it stays fixed even if your browser's print settings
+          reset.
+        </p>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          <div className="grid grid-cols-3 gap-1.5 place-items-center">
+            <div />
+            <Button size="icon" variant="outline" className="h-9 w-9 glass" onClick={() => adjustOffsetY(-OFFSET_STEP_MM)} disabled={offsetY <= MIN_OFFSET_MM} title="Nudge up">
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <div />
+            <Button size="icon" variant="outline" className="h-9 w-9 glass" onClick={() => adjustOffsetX(-OFFSET_STEP_MM)} disabled={offsetX <= MIN_OFFSET_MM} title="Nudge left">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="text-[10px] text-center text-muted-foreground leading-tight">
+              X: {offsetX > 0 ? "+" : ""}{offsetX}mm<br />Y: {offsetY > 0 ? "+" : ""}{offsetY}mm
+            </div>
+            <Button size="icon" variant="outline" className="h-9 w-9 glass" onClick={() => adjustOffsetX(OFFSET_STEP_MM)} disabled={offsetX >= MAX_OFFSET_MM} title="Nudge right">
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <div />
+            <Button size="icon" variant="outline" className="h-9 w-9 glass" onClick={() => adjustOffsetY(OFFSET_STEP_MM)} disabled={offsetY >= MAX_OFFSET_MM} title="Nudge down">
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <div />
+          </div>
+          <Button variant="outline" className="glass gap-2" onClick={handleTestPrint}>
+            <Printer className="h-4 w-4" />
+            Print Test Label
+          </Button>
         </div>
       </Card>
 

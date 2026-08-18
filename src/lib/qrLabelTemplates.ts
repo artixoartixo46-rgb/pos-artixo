@@ -61,6 +61,45 @@ export function saveQrScale(scale: number) {
   localStorage.setItem(QR_SCALE_KEY, String(scale));
 }
 
+// ---- Print alignment offset (persisted per-browser) ----
+//
+// Browsers deliberately don't let a web page set the print dialog's own Margins/Scale, and those
+// two settings aren't reliably remembered forever (a new device, a cleared profile, a printer
+// re-selected, a browser update can all silently reset them) - which is exactly what causes a
+// label print job to come out shifted after previously lining up fine. This offset is a
+// compensating nudge applied entirely inside the printed page itself (a CSS transform on the
+// label grid, independent of any browser/driver setting), so once the shop calibrates it once
+// against their actual printer/roll, it stays exactly fixed on every future print from then on -
+// nothing outside this app can silently change it again.
+
+const OFFSET_X_KEY = "pos_qr_label_offset_x";
+const OFFSET_Y_KEY = "pos_qr_label_offset_y";
+
+export const MIN_OFFSET_MM = -8;
+export const MAX_OFFSET_MM = 8;
+export const OFFSET_STEP_MM = 0.5;
+
+function readOffset(key: string): number {
+  const saved = parseFloat(localStorage.getItem(key) || "");
+  return Number.isFinite(saved) && saved >= MIN_OFFSET_MM && saved <= MAX_OFFSET_MM ? saved : 0;
+}
+
+export function getOffsetX(): number {
+  return readOffset(OFFSET_X_KEY);
+}
+
+export function saveOffsetX(mm: number) {
+  localStorage.setItem(OFFSET_X_KEY, String(mm));
+}
+
+export function getOffsetY(): number {
+  return readOffset(OFFSET_Y_KEY);
+}
+
+export function saveOffsetY(mm: number) {
+  localStorage.setItem(OFFSET_Y_KEY, String(mm));
+}
+
 export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
   {
     id: "classic",
