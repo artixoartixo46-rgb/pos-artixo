@@ -259,7 +259,13 @@ export default function BarcodePrint() {
       grid-template-columns: repeat(${COLS}, ${LABEL_W}mm);
       grid-auto-rows: ${LABEL_H}mm;
       gap: 0;
-      transform: translate(${offsetX}mm, ${offsetY}mm);
+      /* Offset applied as a margin, not a transform: a CSS transform is a paint-time-only
+         effect that runs AFTER the browser has already worked out where page breaks fall for
+         paginated print content, and Chrome's print engine is known to render blank/broken
+         pages when a transformed ancestor's children need to be split across multiple pages -
+         exactly the case here for a batch of labels. Margin participates in normal layout, so
+         pagination is computed correctly with the offset already baked in. */
+      margin: ${offsetY}mm 0 0 ${offsetX}mm;
     }
     .qr-label-box {
       page-break-inside: avoid;
@@ -287,7 +293,26 @@ export default function BarcodePrint() {
     printWindow.document.write(printContent);
     printWindow.document.close();
     printWindow.onload = () => {
-      setTimeout(() => printWindow.print(), 300);
+      // A batch of labels can mean dozens of QR <img> data-URIs - a flat 300ms delay can fire
+      // before all of them have actually decoded/painted on a slower device, which prints blank
+      // stickers even though the HTML/data was correct. Wait for every image to genuinely finish
+      // loading (with a safety-net timeout so a stuck image can't block printing forever).
+      const images = Array.from(printWindow.document.images);
+      const whenReady = Promise.all(
+        images.map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((resolve) => {
+                  img.addEventListener("load", () => resolve(), { once: true });
+                  img.addEventListener("error", () => resolve(), { once: true });
+                })
+        )
+      );
+      const timeout = new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      Promise.race([whenReady, timeout]).then(() => {
+        setTimeout(() => printWindow.print(), 100);
+      });
     };
     return true;
   };
