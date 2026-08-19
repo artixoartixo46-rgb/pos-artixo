@@ -2457,6 +2457,12 @@ export default function POSTerminal() {
                   const costTotal = item.cost != null ? item.cost * item.quantity : null;
                   const profit = costTotal != null ? lineNet - costTotal : null;
                   const marginPct = costTotal != null && lineNet > 0 ? (profit! / lineNet) * 100 : null;
+                  // Largest discount (off the pre-discount line total) that still breaks even -
+                  // i.e. how far a cashier can go before this item stops making any profit.
+                  const maxDiscount =
+                    costTotal != null && lineGross > 0
+                      ? { rs: Math.max(0, lineGross - costTotal), pct: Math.max(0, ((lineGross - costTotal) / lineGross) * 100) }
+                      : null;
                   return (
                   <div
                     key={item.line_key}
@@ -2574,31 +2580,62 @@ export default function POSTerminal() {
                   </div>
 
                   {isEditingDiscount && (
-                    <div className="flex gap-1.5 items-center pt-0.5">
-                      <select
-                        value={item.item_discount_type}
-                        onChange={(e) => updateItemDiscount(item.line_key, item.item_discount, e.target.value as DiscountType)}
-                        className="glass border-border/50 rounded-md px-1.5 h-7 text-xs bg-background/50"
-                      >
-                        <option value="percentage">%</option>
-                        <option value="fixed">Rs.</option>
-                      </select>
-                      <Input
-                        type="number"
-                        min="0"
-                        value={item.item_discount || ""}
-                        placeholder="0"
-                        onChange={(e) => updateItemDiscount(item.line_key, Number(e.target.value) || 0, item.item_discount_type)}
-                        className="glass border-border/50 h-7 text-xs flex-1"
-                      />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs glass px-2"
-                        onClick={() => setEditingDiscountLineKey(null)}
-                      >
-                        Done
-                      </Button>
+                    <div className="space-y-1 pt-0.5">
+                      <div className="flex gap-1.5 items-center">
+                        <select
+                          value={item.item_discount_type}
+                          onChange={(e) => updateItemDiscount(item.line_key, item.item_discount, e.target.value as DiscountType)}
+                          className="glass border-border/50 rounded-md px-1.5 h-7 text-xs bg-background/50"
+                        >
+                          <option value="percentage">%</option>
+                          <option value="fixed">Rs.</option>
+                        </select>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={item.item_discount || ""}
+                          placeholder="0"
+                          onChange={(e) => updateItemDiscount(item.line_key, Number(e.target.value) || 0, item.item_discount_type)}
+                          className={`glass border-border/50 h-7 text-xs flex-1 ${profit != null && profit < 0 ? "border-destructive text-destructive" : ""}`}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs glass px-2"
+                          onClick={() => setEditingDiscountLineKey(null)}
+                        >
+                          Done
+                        </Button>
+                      </div>
+                      {/* Cost-aware suggestion: the largest discount this item can take before the
+                          sale stops making a profit on it, computed from the product's cost price -
+                          only shown once "Cost" is switched on above, since it's the same margin info. */}
+                      {showCost && (
+                        maxDiscount ? (
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className={profit != null && profit < 0 ? "text-destructive font-medium" : "text-muted-foreground"}>
+                              {profit != null && profit < 0
+                                ? `⚠ Rs. ${Math.abs(profit).toFixed(2)} below cost`
+                                : `Max without loss: Rs. ${maxDiscount.rs.toFixed(2)} (${maxDiscount.pct.toFixed(1)}%)`}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateItemDiscount(
+                                  item.line_key,
+                                  item.item_discount_type === "percentage" ? Number(maxDiscount.pct.toFixed(1)) : Number(maxDiscount.rs.toFixed(2)),
+                                  item.item_discount_type
+                                )
+                              }
+                              className="text-primary hover:underline shrink-0"
+                            >
+                              Use max
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground italic">No cost on file - can't suggest a safe discount</p>
+                        )
+                      )}
                     </div>
                   )}
                   </div>
