@@ -493,7 +493,16 @@ export default function Reports() {
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={unitBreakdown} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={(e) => `${e.name}: Rs. ${Number(e.value).toFixed(0)}`}>
+                  <Pie
+                    data={unitBreakdown}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    labelLine={false}
+                    label={({ name, value, percent }) => (percent > 0.06 ? `${name}: Rs. ${Number(value).toFixed(0)}` : "")}
+                  >
                     {unitBreakdown.map((entry, index) => (
                       <Cell key={index} fill={Object.values(SOLD_UNIT_COLORS)[index % 3]} />
                     ))}

@@ -378,14 +378,19 @@ export default function Dashboard() {
             <CardTitle className="text-sm">Sales by Category</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
                   data={categoryData || []}
                   cx="50%"
-                  cy="50%"
+                  cy="46%"
                   labelLine={false}
-                  label={(entry) => entry.name}
+                  // Small slices (a couple % of the total) sat right next to each other at the
+                  // same on-slice label position and overlapped into unreadable stacked text
+                  // (e.g. "Accessories"/"Beverages" in the screenshot). Only label slices big
+                  // enough to have room to breathe - every category (however small) is still
+                  // named and colored in the Legend below, and the Tooltip covers the rest.
+                  label={({ name, percent }) => (percent > 0.06 ? `${name} ${(percent * 100).toFixed(0)}%` : "")}
                   outerRadius={80}
                   fill="hsl(var(--primary))"
                   dataKey="value"
@@ -394,13 +399,18 @@ export default function Dashboard() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip 
+                <Tooltip
                   contentStyle={{
                     backgroundColor: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
                     borderRadius: "8px",
                   }}
                   formatter={(value: any) => [`LKR ${value ? Number(value).toFixed(2) : '0.00'}`, "Sales"]}
+                />
+                <Legend
+                  verticalAlign="bottom"
+                  height={48}
+                  wrapperStyle={{ fontSize: "12px" }}
                 />
               </PieChart>
             </ResponsiveContainer>
