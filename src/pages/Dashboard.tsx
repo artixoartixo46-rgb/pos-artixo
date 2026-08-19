@@ -90,12 +90,33 @@ export default function Dashboard() {
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       const { data, error } = await supabase
         .from("sales")
         .select("total_amount")
         .gte("sale_date", today.toISOString());
-      
+
+      if (error) throw error;
+      return data?.reduce((sum, sale) => sum + Number(sale.total_amount), 0) || 0;
+    },
+  });
+
+  // Real day-over-day comparison for the "Today's Sales" card - this used to be a hardcoded
+  // "+20.1% from yesterday" string that never reflected actual data at all.
+  const { data: yesterdaySales } = useQuery({
+    queryKey: ["yesterday-sales"],
+    queryFn: async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const yesterdayStart = new Date(todayStart);
+      yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+      const { data, error } = await supabase
+        .from("sales")
+        .select("total_amount")
+        .gte("sale_date", yesterdayStart.toISOString())
+        .lt("sale_date", todayStart.toISOString());
+
       if (error) throw error;
       return data?.reduce((sum, sale) => sum + Number(sale.total_amount), 0) || 0;
     },
@@ -257,7 +278,19 @@ export default function Dashboard() {
               LKR {todaySales?.toFixed(2) || "0.00"}
             </div>
             <p className="text-xs text-muted-foreground">
-              +20.1% from yesterday
+              {(() => {
+                const today = todaySales || 0;
+                const yesterday = yesterdaySales || 0;
+                if (yesterday === 0) {
+                  return today > 0
+                    ? "No sales yesterday to compare"
+                    : "No sales yet today";
+                }
+                const pct = ((today - yesterday) / yesterday) * 100;
+                const sign = pct > 0 ? "+" : "";
+                const colorClass = pct > 0 ? "text-emerald-500" : pct < 0 ? "text-destructive" : "";
+                return <span className={colorClass}>{sign}{pct.toFixed(1)}% from yesterday</span>;
+              })()}
             </p>
           </CardContent>
         </Card>
