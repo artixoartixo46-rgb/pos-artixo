@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent, QrCode } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, EyeOff, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent, QrCode } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
 import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
 import {
@@ -81,6 +81,9 @@ interface CartItem {
   tiers: PriceTier[];
   item_discount: number;
   item_discount_type: DiscountType;
+  /** Per-base-unit cost price, if the product has one on file - used only for the optional
+   *  "Show Cost" cashier view below, never shown to the customer. */
+  cost?: number;
 }
 
 // Given tiers (unsorted ok) and a quantity, return the best applicable unit price
@@ -177,6 +180,10 @@ export default function POSTerminal() {
   const [discount, setDiscount] = useState<number>(0);
   const [discountType, setDiscountType] = useState<DiscountType>("percentage");
   const [editingDiscountLineKey, setEditingDiscountLineKey] = useState<string | null>(null);
+  // Off by default and not persisted across reloads - cost/margin is only for the cashier
+  // deciding how much room there is to negotiate a price, it should never be left switched on
+  // and visible to whoever glances at the till screen next (including the customer).
+  const [showCost, setShowCost] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
   const [customerPaidAmount, setCustomerPaidAmount] = useState<number>(0);
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
@@ -369,6 +376,7 @@ export default function POSTerminal() {
         tiers: tiersForProduct(product.id),
         item_discount: 0,
         item_discount_type: "percentage" as DiscountType,
+        cost: product.cost != null ? Number(product.cost) : undefined,
       };
       return { ...base, price: computeLinePrice(base, quantity) };
     },
@@ -2421,9 +2429,22 @@ export default function POSTerminal() {
         <div className="space-y-4 lg:order-1 lg:sticky lg:top-4 lg:self-start">
           <Card className="glass-card border-border/50">
             <CardHeader className="p-4 pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <ShoppingCart className="h-5 w-5 text-primary" />
-                Current Sale
+              <CardTitle className="flex items-center justify-between text-lg">
+                <span className="flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5 text-primary" />
+                  Current Sale
+                </span>
+                <Button
+                  type="button"
+                  variant={showCost ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowCost((v) => !v)}
+                  className={`h-7 text-xs gap-1.5 ${showCost ? "" : "glass"}`}
+                  title="Show cost price and margin per item - for you only, turn off before handing the screen to a customer"
+                >
+                  {showCost ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  Cost
+                </Button>
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 pt-0">
@@ -2433,6 +2454,9 @@ export default function POSTerminal() {
                   const lineGross = item.price * item.quantity;
                   const lineNet = lineGross - itemDiscountAmt;
                   const isEditingDiscount = editingDiscountLineKey === item.line_key;
+                  const costTotal = item.cost != null ? item.cost * item.quantity : null;
+                  const profit = costTotal != null ? lineNet - costTotal : null;
+                  const marginPct = costTotal != null && lineNet > 0 ? (profit! / lineNet) * 100 : null;
                   return (
                   <div
                     key={item.line_key}
@@ -2452,6 +2476,15 @@ export default function POSTerminal() {
                         Rs. {item.price ? Number(item.price).toFixed(2) : '0.00'} / {item.unit_label || "pcs"}
                         {item.min_order_qty > 1 && item.sold_unit === "unit" && ` · min ${item.min_order_qty}`}
                       </p>
+                      {showCost && (
+                        costTotal != null ? (
+                          <p className={`text-[11px] font-medium ${profit! >= 0 ? "text-emerald-500" : "text-destructive"}`}>
+                            Cost Rs. {costTotal.toFixed(2)} · Profit Rs. {profit!.toFixed(2)}{marginPct != null ? ` (${marginPct.toFixed(0)}%)` : ""}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground italic">No cost on file for this product</p>
+                        )
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       {item.is_weight_based ? (
