@@ -259,17 +259,20 @@ export default function BarcodePrint() {
       grid-template-columns: repeat(${COLS}, ${LABEL_W}mm);
       grid-auto-rows: ${LABEL_H}mm;
       gap: 0;
-      /* Offset applied as a margin, not a transform: a CSS transform is a paint-time-only
-         effect that runs AFTER the browser has already worked out where page breaks fall for
-         paginated print content, and Chrome's print engine is known to render blank/broken
-         pages when a transformed ancestor's children need to be split across multiple pages -
-         exactly the case here for a batch of labels. Margin participates in normal layout, so
-         pagination is computed correctly with the offset already baked in. */
-      margin: ${offsetY}mm 0 0 ${offsetX}mm;
     }
     .qr-label-box {
       page-break-inside: avoid;
       break-inside: avoid;
+      /* Offset applied here, per label box, NOT as a margin on .label-grid above. A margin on
+         .label-grid adds extra height to the very first row only, which knocks every row after
+         it out of sync with the fixed ${LABEL_H}mm page slices Chrome cuts the print into - each
+         row then straddles two physical page breaks and prints as a torn/blank sliver on two
+         separate stickers instead of one whole sticker (this is what caused "prints empty" to
+         come back after the alignment feature was added). Each .qr-label-box is exactly one
+         page/row tall with page-break-inside: avoid, so it's never itself split across a page -
+         transforming it only repaints it in a nudged spot without changing any row's height in
+         the document flow, so page breaks still land exactly on row boundaries every time. */
+      transform: translate(${offsetX}mm, ${offsetY}mm);
     }
     .qr-label-box img {
       image-rendering: pixelated;
