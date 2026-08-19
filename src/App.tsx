@@ -25,6 +25,7 @@ import VendorCheckIn from "./pages/VendorCheckIn";
 import Catalog from "./pages/Catalog";
 import DigitalReceipt from "./pages/DigitalReceipt";
 import DemandForecast from "./pages/DemandForecast";
+import SystemHealth from "./pages/SystemHealth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -63,6 +64,10 @@ const App = () => {
           {/* Standalone, no Layout/sidebar - customer's own phone lands here after scanning
               the "Digital Receipt" QR shown at checkout, no login involved. */}
           <Route path="/receipt/:invoiceNumber" element={<DigitalReceipt />} />
+          {/* Standalone, no Layout/sidebar, deliberately NOT linked from the sidebar menu -
+              developer-only diagnostics, gated by its own fingerprint/PIN screen. Reach it via
+              the QR code in Settings > Developer Tools. */}
+          <Route path="/system-health" element={<SystemHealth />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2 } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import QRCodeLib from "qrcode";
@@ -168,6 +168,20 @@ export default function SettingsPage() {
     const dataUrl = await QRCodeLib.toDataURL(url, { width: 400, margin: 1, errorCorrectionLevel: "M" });
     setCatalogQrDataUrl(dataUrl);
     setCatalogQrOpen(true);
+  };
+
+  // ---- Developer System Health QR ----
+  // This page isn't in the sidebar menu on purpose - the QR is the only way to reach it. It's
+  // still gated by its own fingerprint/PIN screen on open, so scanning this alone doesn't grant
+  // access to anyone who isn't the developer.
+  const [healthQrOpen, setHealthQrOpen] = useState(false);
+  const [healthQrDataUrl, setHealthQrDataUrl] = useState("");
+
+  const openHealthQr = async () => {
+    const url = `${window.location.origin}/system-health`;
+    const dataUrl = await QRCodeLib.toDataURL(url, { width: 400, margin: 1, errorCorrectionLevel: "M" });
+    setHealthQrDataUrl(dataUrl);
+    setHealthQrOpen(true);
   };
 
   // Opens a print-ready A5 poster (not a thermal label - this is meant to be printed on a
@@ -568,6 +582,22 @@ export default function SettingsPage() {
 
       <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
         <div className="flex items-center gap-2 mb-4">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">Developer Tools</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          System Health is a diagnostics page (database status, table counts, offline sync queue,
+          printer connection) that isn't in the sidebar menu - scan this QR to open it. It's
+          protected by its own fingerprint/PIN screen, separate from this Settings page.
+        </p>
+        <Button variant="outline" className="glass gap-2" onClick={openHealthQr}>
+          <QrCode className="h-4 w-4" />
+          Show System Health QR
+        </Button>
+      </Card>
+
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
+        <div className="flex items-center gap-2 mb-4">
           <Database className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-semibold">Data Backup</h2>
         </div>
@@ -618,6 +648,26 @@ export default function SettingsPage() {
               <Printer className="h-4 w-4" />
               Print Catalog QR
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={healthQrOpen} onOpenChange={setHealthQrOpen}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              System Health QR
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-3 py-2">
+            {healthQrDataUrl && (
+              <img src={healthQrDataUrl} alt="System health page QR" className="w-56 h-56 rounded-lg border border-border/40 bg-white p-2" />
+            )}
+            <p className="text-sm text-muted-foreground text-center">
+              Scan with your own phone to open the System Health page. First time on a new device,
+              you'll set/enter a PIN, then you can register that device's fingerprint for next time.
+            </p>
           </div>
         </DialogContent>
       </Dialog>
