@@ -21,6 +21,18 @@ import {
 import { toast } from "sonner";
 import { getPendingSales } from "@/lib/offlineDb";
 import { isWebUSBSupported, getSavedPrinterInfo } from "@/lib/thermalPrinter";
+import { useAuth } from "@/contexts/AuthContext";
+
+function GoogleIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47c-.28 1.5-1.13 2.78-2.4 3.63v3.02h3.88c2.27-2.09 3.57-5.17 3.57-8.84z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.88-3.02c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.12C3.25 21.3 7.31 24 12 24z" />
+      <path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54V6.61H1.27a12 12 0 0 0 0 10.78l4-3.12z" />
+      <path fill="#EA4335" d="M12 4.77c1.76 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.25 2.7 1.27 6.61l4 3.12C6.22 6.88 8.87 4.77 12 4.77z" />
+    </svg>
+  );
+}
 
 // Standalone, deliberately NOT in the sidebar nav and NOT wrapped in <Layout> - this is a
 // developer-only diagnostics page. There's no real login system in this app (every other route
@@ -95,6 +107,7 @@ function GateScreen({ onUnlock }: { onUnlock: () => void }) {
   const [confirmPin, setConfirmPin] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const { user, loading: authLoading, isSuperAdmin, signInWithGoogle, signOut } = useAuth();
 
   useEffect(() => {
     if (window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable) {
@@ -105,6 +118,24 @@ function GateScreen({ onUnlock }: { onUnlock: () => void }) {
   const unlock = () => {
     sessionStorage.setItem(SESSION_UNLOCK_KEY, "1");
     onUnlock();
+  };
+
+  // Real, server-verified path: Supabase Auth confirms the Google account, and we only unlock if
+  // it's the one specific super-admin email - the same check the browser can't be tricked into
+  // skipping the way it can with a locally-stored PIN. Auto-unlocks the moment the session lands
+  // (e.g. right after the Google redirect comes back to this page).
+  useEffect(() => {
+    if (!authLoading && isSuperAdmin) unlock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, isSuperAdmin]);
+
+  const handleGoogleSignIn = async () => {
+    setError("");
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      setError(err?.message || "Google sign-in isn't set up yet for this app - use your PIN below instead.");
+    }
   };
 
   const handleFingerprintUnlock = async () => {
@@ -159,6 +190,27 @@ function GateScreen({ onUnlock }: { onUnlock: () => void }) {
     unlock();
   };
 
+  // Shown whenever a Google account IS signed in but it isn't the authorized super-admin email -
+  // makes it obvious why nothing unlocked, and offers a one-tap way to try a different account.
+  const wrongAccountBanner = user && !isSuperAdmin && !authLoading && (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs space-y-1.5">
+      <p className="text-destructive font-medium">Signed in as {user.email} - not the authorized account.</p>
+      <button type="button" onClick={() => signOut()} className="text-destructive underline">
+        Sign out and try a different Google account
+      </button>
+    </div>
+  );
+
+  const googleSignInBlock = (
+    <div className="space-y-1.5">
+      <Button variant="outline" className="w-full gap-2 glass" onClick={handleGoogleSignIn} disabled={authLoading}>
+        {authLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+        Sign in with Google
+      </Button>
+      {wrongAccountBanner}
+    </div>
+  );
+
   // First visit ever, on any device - no PIN set up at all yet
   if (!storedPin) {
     return (
@@ -168,9 +220,13 @@ function GateScreen({ onUnlock }: { onUnlock: () => void }) {
             <ShieldCheck className="h-5 w-5 text-primary" />
             <h1 className="text-lg font-semibold">Set up System Health access</h1>
           </div>
+          {googleSignInBlock}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="h-px flex-1 bg-border" /> or set a PIN <div className="h-px flex-1 bg-border" />
+          </div>
           <p className="text-sm text-muted-foreground">
-            Choose a PIN for this page. You can also register your fingerprint/Face ID per-device
-            afterwards - the PIN is the one thing that works everywhere and is your fallback.
+            A PIN works as a fallback on any device, including ones without Google sign-in set up yet.
+            You can also register your fingerprint/Face ID per-device afterwards.
           </p>
           <Input type="password" inputMode="numeric" placeholder="New PIN (min 4 digits)" value={pinInput} onChange={(e) => setPinInput(e.target.value)} className="glass border-border/50" />
           <Input type="password" inputMode="numeric" placeholder="Confirm PIN" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} className="glass border-border/50" />
@@ -189,6 +245,12 @@ function GateScreen({ onUnlock }: { onUnlock: () => void }) {
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Developer access only</h1>
+        </div>
+
+        {googleSignInBlock}
+
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="h-px flex-1 bg-border" /> or <div className="h-px flex-1 bg-border" />
         </div>
 
         {storedCredentialId && (

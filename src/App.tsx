@@ -27,6 +27,7 @@ import DigitalReceipt from "./pages/DigitalReceipt";
 import DemandForecast from "./pages/DemandForecast";
 import SystemHealth from "./pages/SystemHealth";
 import NotFound from "./pages/NotFound";
+import { AuthProvider } from "./contexts/AuthContext";
 
 const queryClient = new QueryClient();
 
@@ -35,6 +36,7 @@ const App = () => {
 
   return (
   <QueryClientProvider client={queryClient}>
+    <AuthProvider>
     <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -73,6 +75,7 @@ const App = () => {
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
+    </AuthProvider>
   </QueryClientProvider>
   );
 };
