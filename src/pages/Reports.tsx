@@ -138,7 +138,7 @@ export default function Reports() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, category, stock_quantity, min_stock_level, unit_label, case_size, cost, price");
+        .select("id, name, category, stock_quantity, min_stock_level, unit_label, case_size, cost, price, created_at");
       if (error) throw error;
       return data || [];
     },
@@ -267,10 +267,22 @@ export default function Reports() {
       .filter((p: any) => Number(p.stock_quantity ?? 0) > 0)
       .map((p: any) => {
         const lastSale = lastSaleDateByProduct.get(p.id) || null;
-        const daysSince = lastSale ? Math.floor((now - new Date(lastSale).getTime()) / DAY_MS) : null;
+        // A product that has never sold isn't necessarily "dead stock" - it might just have been
+        // added yesterday and hasn't had a chance to sell yet. Fall back to how long the product
+        // itself has existed (created_at) so a brand-new product needs the same deadStockDays
+        // window to pass before it's flagged, same as a product with an actual last-sale date.
+        const daysSince = lastSale
+          ? Math.floor((now - new Date(lastSale).getTime()) / DAY_MS)
+          : p.created_at
+          ? Math.floor((now - new Date(p.created_at).getTime()) / DAY_MS)
+          : null;
         const unitValue = Number(p.cost) > 0 ? Number(p.cost) : Number(p.price) || 0;
         const tiedUpValue = unitValue * Number(p.stock_quantity ?? 0);
-        return { ...p, lastSale, daysSince, tiedUpValue };
+        // Separate from daysSince (which now falls back to "days since added" for never-sold
+        // products so they still age into the report correctly) - the UI needs to know whether
+        // it's showing "last sold Xd ago" or "never sold, just been sitting Xd since it was added".
+        const neverSold = !lastSale;
+        return { ...p, lastSale, daysSince, neverSold, tiedUpValue };
       })
       .filter((p: any) => p.daysSince === null || p.daysSince >= deadStockDays)
       .sort((a: any, b: any) => b.tiedUpValue - a.tiedUpValue);
@@ -668,8 +680,13 @@ export default function Reports() {
                         {p.stock_quantity ?? 0} {p.unit_label || "pcs"}
                       </TableCell>
                       <TableCell className="text-right">
-                        {p.daysSince === null ? (
-                          <Badge variant="destructive" className="text-[10px]">Never sold</Badge>
+                        {p.neverSold ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <Badge variant="destructive" className="text-[10px]">Never sold</Badge>
+                            {p.daysSince !== null && (
+                              <span className="text-[10px] text-muted-foreground">added {p.daysSince}d ago</span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">{p.daysSince}d ago</span>
                         )}
