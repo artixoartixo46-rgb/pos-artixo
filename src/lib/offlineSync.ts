@@ -120,7 +120,19 @@ export async function syncPendingSales(): Promise<SyncResult> {
         succeeded++;
       } catch (err: any) {
         failed++;
-        await updatePendingSale({ ...sale, status: "failed", errorMessage: err?.message || "Sync failed" });
+        const errorMessage = err?.message || "Sync failed";
+        await updatePendingSale({ ...sale, status: "failed", errorMessage });
+        try {
+          // Cast: sync_errors isn't in the generated Database types (added via raw SQL,
+          // not the Supabase-managed migration flow this codebase's types are generated from).
+          await (supabase as any).from("sync_errors").insert({
+            error_message: errorMessage,
+            sale_payload: sale.payload,
+            device_info: navigator.userAgent,
+          });
+        } catch {
+          // best-effort logging; don't let this block the sync loop
+        }
       }
     }
 
