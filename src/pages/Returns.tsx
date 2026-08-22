@@ -95,20 +95,40 @@ export default function Returns() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A hardware/handheld QR scanner acts as a keyboard - it "types" whatever the QR encodes
+  // straight into whichever field has focus (this search box has autoFocus), followed by an
+  // Enter keystroke. The "Scan to Return" QR encodes a full URL (".../returns?invoice=...")
+  // rather than a bare invoice number, so the raw scanned text must go through the same
+  // extractInvoiceNumber() the camera-scan path already uses - otherwise the search runs an
+  // ilike against the whole URL, which never matches any invoice_number and silently returns
+  // nothing. This is transparent for normal manual typing (extractInvoiceNumber returns
+  // non-URL input unchanged).
+  const invoiceSearchNormalized = useMemo(() => extractInvoiceNumber(invoiceSearch), [invoiceSearch]);
+
   const { data: matchingSales, isLoading: searchLoading } = useQuery({
-    queryKey: ["returns-sale-search", invoiceSearch],
+    queryKey: ["returns-sale-search", invoiceSearchNormalized],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales")
         .select("id, invoice_number, customer_id, customer_name, total_amount, sale_date, status")
-        .ilike("invoice_number", `%${invoiceSearch}%`)
+        .ilike("invoice_number", `%${invoiceSearchNormalized}%`)
         .order("sale_date", { ascending: false })
         .limit(10);
       if (error) throw error;
       return data || [];
     },
-    enabled: invoiceSearch.trim().length > 0,
+    enabled: invoiceSearchNormalized.trim().length > 0,
   });
+
+  // Mirrors the camera-scan path's "jump straight to the sale" behavior for a hardware
+  // scanner: once the normalized scan text matches exactly one sale, select it automatically
+  // instead of making the cashier tap the result too.
+  useEffect(() => {
+    if (matchingSales && matchingSales.length === 1 && matchingSales[0].invoice_number === invoiceSearchNormalized) {
+      selectSale(matchingSales[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchingSales, invoiceSearchNormalized]);
 
   const { data: saleItems, isLoading: saleItemsLoading } = useQuery({
     queryKey: ["returns-sale-items", selectedSale?.id],
