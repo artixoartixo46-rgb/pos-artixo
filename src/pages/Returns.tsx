@@ -49,15 +49,20 @@ export default function Returns() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
 
-  // Extracts an invoice number out of either a plain string (typed/scanned as-is) or a
-  // scan-to-return URL like ".../returns?invoice=INV000010" - covers both a QR scanned by
-  // our in-app camera and one opened externally by any phone's native camera app.
+  // Extracts an invoice number out of either a plain string (typed/scanned as-is) or one of
+  // the two receipt QR shapes this app prints/shares: the "Scan to Return" QR
+  // (".../returns?invoice=INV000010") and the Digital Receipt link/QR (".../receipt/INV000010").
+  // A cashier or customer scanning either QR into this search box should work, since both are
+  // printed on / linked from the same receipt - so this covers our in-app camera scanner, any
+  // phone's native camera app, and handheld hardware scanners alike.
   const extractInvoiceNumber = (raw: string): string => {
     const trimmed = raw.trim();
     try {
       const url = new URL(trimmed);
-      const fromUrl = url.searchParams.get("invoice");
-      if (fromUrl) return fromUrl;
+      const fromQuery = url.searchParams.get("invoice");
+      if (fromQuery) return fromQuery;
+      const pathMatch = url.pathname.match(/\/receipt\/([^/]+)/);
+      if (pathMatch) return decodeURIComponent(pathMatch[1]);
     } catch {
       // not a URL - fall through and treat it as a plain invoice number
     }
