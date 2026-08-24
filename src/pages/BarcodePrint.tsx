@@ -33,6 +33,7 @@ import {
   PAGE_W,
   type QRTemplateItem,
 } from "@/lib/qrLabelTemplates";
+import { isWebUSBSupported, getSavedPrinterInfo, printLabelsDirect } from "@/lib/thermalPrinter";
 
 type PrintQueueItem = {
   id: string;
@@ -320,10 +321,34 @@ export default function BarcodePrint() {
     return true;
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (printQueue.length === 0) {
       toast.error("No items in print queue");
       return;
+    }
+
+    // If a thermal printer is already connected (same WebUSB device used for receipts), print
+    // labels the same way receipts print - raw ESC/POS text + the printer's own built-in QR
+    // generator. Most 58mm thermal RECEIPT printers have no real Windows print driver, so
+    // sending them an HTML page via the browser's Print dialog (the fallback below) comes out
+    // as a blank sticker even though the on-screen print preview looks correct - this sidesteps
+    // that entirely instead of relying on a driver that isn't really there.
+    if (isWebUSBSupported() && getSavedPrinterInfo()) {
+      try {
+        await printLabelsDirect(
+          printQueue.map((item) => ({
+            name: item.name,
+            price: item.price,
+            qrCodeNumber: item.qrCodeNumber,
+            quantity: item.quantity,
+          }))
+        );
+        toast.success(`Printing ${totalLabels} labels directly to your connected thermal printer`);
+        return;
+      } catch (err: any) {
+        toast.error((err?.message || "Direct print failed") + " - falling back to browser print.");
+        // fall through to browser print
+      }
     }
 
     const template = getTemplateById(selectedTemplateId);
@@ -336,7 +361,9 @@ export default function BarcodePrint() {
 
   // Prints one row (2 labels) of dummy content so the shop can calibrate the offset above against
   // their actual printer/roll without wasting a real product sticker - print, check against the
-  // physical label edge, nudge, print again, repeat until it lines up.
+  // physical label edge, nudge, print again, repeat until it lines up. Not applicable when
+  // printing directly to a connected thermal printer (there's no sheet/offset to calibrate -
+  // each label is just cut off the roll as its own strip), so this always uses browser print.
   const handleTestPrint = () => {
     const template = getTemplateById(selectedTemplateId);
     const testItem: PrintQueueItem = {

@@ -518,6 +518,72 @@ export async function openCashDrawer(): Promise<void> {
   await sendBytes([ESC, 0x70, 0x00, 0x19, 0xfa]);
 }
 
+export interface DirectPrintLabel {
+  name: string;
+  price: number;
+  qrCodeNumber: string;
+  quantity: number;
+}
+
+// Direct ESC/POS printing for QR price labels, reusing the SAME WebUSB connection/native QR
+// command as printReceiptDirect() above. This exists because BarcodePrint.tsx's original
+// label print went through the browser's Print dialog (an HTML page rendered by the OS print
+// driver) - fine for a real Windows-driven label printer, but most 58mm thermal RECEIPT
+// printers (like the one already connected here for bills) have no real GDI rasterization
+// driver at all, so that HTML page came out as a blank sticker even though the on-screen print
+// preview looked correct. Printing the label the exact same way the receipt already prints
+// correctly - as raw ESC/POS text plus the printer's own built-in QR generator (GS ( k), not a
+// browser-rendered image - sidesteps the driver entirely and matches how other POS software
+// prints on the same hardware. Each label is cut off the roll as its own strip.
+function buildLabelBytes(labels: DirectPrintLabel[]): number[] {
+  const width = getPaperWidth() === 58 ? 32 : 48;
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  const push = (s: string) => bytes.push(...Array.from(encoder.encode(s)));
+  const init = () => bytes.push(ESC, 0x40);
+  const align = (a: "left" | "center" | "right") =>
+    bytes.push(ESC, 0x61, a === "left" ? 0 : a === "center" ? 1 : 2);
+  const bold = (on: boolean) => bytes.push(ESC, 0x45, on ? 1 : 0);
+  const doubleHeight = (on: boolean) => bytes.push(GS, 0x21, on ? 0x01 : 0x00);
+  const feed = (n = 1) => push("\n".repeat(n));
+  const truncate = (s: string, max: number) => (s.length > max ? s.slice(0, Math.max(0, max - 1)) + "…" : s);
+  const cut = () => bytes.push(GS, 0x56, 0x00);
+  const qr = (data: string, moduleSize = 5) => {
+    const dataBytes = Array.from(encoder.encode(data));
+    const storeLen = dataBytes.length + 3;
+    const pL = storeLen % 256;
+    const pH = Math.floor(storeLen / 256) % 256;
+    bytes.push(GS, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, moduleSize);
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31);
+    bytes.push(GS, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30, ...dataBytes);
+    bytes.push(GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30);
+  };
+
+  init();
+  for (const label of labels) {
+    for (let i = 0; i < label.quantity; i++) {
+      align("center");
+      qr(String(label.qrCodeNumber));
+      feed(1);
+      bold(true);
+      push(truncate(label.name, width) + "\n");
+      doubleHeight(true);
+      push(`Rs. ${label.price.toFixed(2)}` + "\n");
+      doubleHeight(false);
+      bold(false);
+      push(`#${label.qrCodeNumber}` + "\n");
+      feed(1);
+      cut();
+    }
+  }
+  return bytes;
+}
+
+export async function printLabelsDirect(labels: DirectPrintLabel[]): Promise<void> {
+  await sendBytes(buildLabelBytes(labels));
+}
+
 export async function printTestReceipt(businessName?: string): Promise<void> {
   await printReceiptDirect({
     businessName: businessName || "Artixo POS",
