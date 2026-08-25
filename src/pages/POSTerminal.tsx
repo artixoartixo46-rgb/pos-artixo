@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, EyeOff, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent, QrCode } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingCart, Search, Printer, UserCheck, X, Wallet, Eye, EyeOff, Camera, Mic, MicOff, Weight as WeightIcon, PauseCircle, Clock, PlayCircle, Percent, QrCode, MessageCircle } from "lucide-react";
 import { QRScanner } from "@/components/QRScanner";
 import { ScaleConnectDialog } from "@/components/ScaleConnectDialog";
 import {
@@ -57,6 +57,7 @@ import {
 } from "@/lib/offlineDb";
 import { refreshOfflineCache, syncPendingSales } from "@/lib/offlineSync";
 import { getItemDiscountAmount, getLineNetTotal } from "@/lib/cartMath";
+import { openWhatsAppShare } from "@/lib/whatsapp";
 import { WifiOff, RefreshCw } from "lucide-react";
 
 interface PriceTier {
@@ -218,12 +219,17 @@ export default function POSTerminal() {
     balance: number;
     paymentMethod: string;
     customerName?: string;
+    customerPhone?: string | null;
   } | null>(null);
   const [voiceLanguage, setVoiceLanguage] = useState<string>("en-US");
   const [showVoicePreview, setShowVoicePreview] = useState(false);
   const [digitalReceiptOpen, setDigitalReceiptOpen] = useState(false);
   const [digitalReceiptQrUrl, setDigitalReceiptQrUrl] = useState("");
   const [digitalReceiptLink, setDigitalReceiptLink] = useState("");
+  // Pre-filled from the attached customer's phone (if any) when the dialog opens, but always
+  // editable - a walk-in customer with no account on file can still get the bill sent to
+  // whatever number the cashier types in on the spot.
+  const [whatsappPhone, setWhatsappPhone] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -1320,6 +1326,7 @@ export default function POSTerminal() {
       const qrUrl = await QRCode.toDataURL(link, { width: 320, margin: 1, errorCorrectionLevel: "M" });
       setDigitalReceiptQrUrl(qrUrl);
       setDigitalReceiptLink(link);
+      setWhatsappPhone(lastReceiptData?.customerPhone || "");
       setDigitalReceiptOpen(true);
     } catch {
       toast({
@@ -1329,6 +1336,23 @@ export default function POSTerminal() {
       });
       if (lastReceiptData) printReceipt(lastReceiptData);
     }
+  };
+
+  // wa.me link method: no WhatsApp Business API, no Meta approval, no per-message cost - just
+  // opens WhatsApp (Web/Desktop/App, whichever the cashier/owner is logged into) with the bill
+  // link pre-filled in the message box. One manual tap to actually send. Works for a walk-in
+  // customer too - the phone field is editable even when no customer is attached to the sale.
+  const sendDigitalReceiptViaWhatsApp = () => {
+    if (!whatsappPhone.trim()) {
+      toast({
+        title: "Enter a phone number",
+        description: "Type the customer's WhatsApp number to send the bill.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const message = `Thank you for your purchase! View your bill here: ${digitalReceiptLink}`;
+    openWhatsAppShare(whatsappPhone, message);
   };
 
   // Prints a sale receipt: direct to a connected USB thermal printer if available/enabled,
@@ -1442,6 +1466,7 @@ export default function POSTerminal() {
             balance: saleBalance,
             paymentMethod,
             customerName: selectedCustomer?.name,
+            customerPhone: selectedCustomer?.phone || null,
           },
         };
       };
@@ -1536,6 +1561,7 @@ export default function POSTerminal() {
             balance: saleBalance,
             paymentMethod,
             customerName: selectedCustomer?.name,
+            customerPhone: selectedCustomer?.phone || null,
           }
         };
       } catch (err) {
@@ -3296,6 +3322,25 @@ export default function POSTerminal() {
                 {digitalReceiptLink}
               </a>
             )}
+
+            {/* wa.me link method: pre-filled from the attached customer's phone if there is one,
+                but always editable - a walk-in with no account can still get the bill sent. */}
+            <div className="w-full space-y-2 pt-1 border-t border-border/50">
+              <Input
+                type="tel"
+                placeholder="Customer WhatsApp number"
+                value={whatsappPhone}
+                onChange={(e) => setWhatsappPhone(e.target.value)}
+              />
+              <Button
+                className="w-full gap-2 bg-[#25D366] hover:bg-[#1ebe5b] text-white"
+                onClick={sendDigitalReceiptViaWhatsApp}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Send via WhatsApp
+              </Button>
+            </div>
+
             <Button
               variant="outline"
               className="w-full"

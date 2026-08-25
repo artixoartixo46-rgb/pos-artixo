@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { openWhatsAppShare } from "@/lib/whatsapp";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,15 +32,6 @@ interface ManualLineItem {
   product_name: string;
   unit_label: string;
   quantity: string;
-}
-
-// wa.me needs digits only, with country code and no leading 0 - default to Sri Lanka (+94)
-// since that's this business's locale (matches the support number already used in the TopBar).
-function toWhatsAppNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("94")) return digits;
-  if (digits.startsWith("0")) return "94" + digits.slice(1);
-  return digits;
 }
 
 function buildOrderText(
@@ -121,8 +113,7 @@ export default function OrderManagement() {
       return;
     }
     const text = buildOrderText(businessName, vendorName, items);
-    const waNumber = toWhatsAppNumber(phone);
-    window.open(`https://wa.me/${waNumber}?text=${encodeURIComponent(text)}`, "_blank");
+    openWhatsAppShare(phone, text);
   };
 
   const copyOrderText = async (vendorName: string, items: { name: string; qty: number; unit: string }[]) => {
