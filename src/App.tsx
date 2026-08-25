@@ -1,35 +1,66 @@
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { SplashScreen } from "./components/SplashScreen";
 import Layout from "./components/Layout";
-import Dashboard from "./pages/Dashboard";
-import POSTerminal from "./pages/POSTerminal";
-import Items from "./pages/Items";
-import Reports from "./pages/Reports";
-import SettingsPage from "./pages/SettingsPage";
-import Vendors from "./pages/Vendors";
-import ProductCategory from "./pages/ProductCategory";
-import ProductReceiving from "./pages/ProductReceiving";
-import OrderManagement from "./pages/OrderManagement";
-import ProductInventory from "./pages/ProductInventory";
-import StockTake from "./pages/StockTake";
-import Returns from "./pages/Returns";
-import CreditCustomers from "./pages/CreditCustomers";
-import BarcodePrint from "./pages/BarcodePrint";
-import CreditPurchaseHistory from "./pages/CreditPurchaseHistory";
-import VendorCheckIn from "./pages/VendorCheckIn";
-import Catalog from "./pages/Catalog";
-import DigitalReceipt from "./pages/DigitalReceipt";
-import DemandForecast from "./pages/DemandForecast";
-import SystemHealth from "./pages/SystemHealth";
-import NotFound from "./pages/NotFound";
 import { AuthProvider } from "./contexts/AuthContext";
 
-const queryClient = new QueryClient();
+// Every page used to be a top-level import, so ALL of them (charts, jsPDF/html2canvas for
+// report export, html5-qrcode, etc.) landed in one single JS bundle loaded before the very
+// first paint - a couple MB of JS a cashier's phone had to fetch/parse just to see the
+// Dashboard. Routing through React.lazy means each page only downloads when it's actually
+// navigated to, and its own heavy dependencies (a chart library, a PDF exporter) come along
+// with it instead of blocking everyone else's first load.
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const POSTerminal = lazy(() => import("./pages/POSTerminal"));
+const Items = lazy(() => import("./pages/Items"));
+const Reports = lazy(() => import("./pages/Reports"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const Vendors = lazy(() => import("./pages/Vendors"));
+const ProductCategory = lazy(() => import("./pages/ProductCategory"));
+const ProductReceiving = lazy(() => import("./pages/ProductReceiving"));
+const OrderManagement = lazy(() => import("./pages/OrderManagement"));
+const ProductInventory = lazy(() => import("./pages/ProductInventory"));
+const StockTake = lazy(() => import("./pages/StockTake"));
+const Returns = lazy(() => import("./pages/Returns"));
+const CreditCustomers = lazy(() => import("./pages/CreditCustomers"));
+const BarcodePrint = lazy(() => import("./pages/BarcodePrint"));
+const CreditPurchaseHistory = lazy(() => import("./pages/CreditPurchaseHistory"));
+const VendorCheckIn = lazy(() => import("./pages/VendorCheckIn"));
+const Catalog = lazy(() => import("./pages/Catalog"));
+const DigitalReceipt = lazy(() => import("./pages/DigitalReceipt"));
+const DemandForecast = lazy(() => import("./pages/DemandForecast"));
+const SystemHealth = lazy(() => import("./pages/SystemHealth"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+// Brief, full-screen fallback while a lazy page chunk downloads - only ever visible for a
+// beat on a fresh navigation (the chunk is cached by the browser/service worker after that).
+function RouteFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Defaults (staleTime 0, refetchOnWindowFocus true) meant every tab switch or component
+      // remount silently refired every query - extra load on a shop's often-slow connection
+      // and a big part of the app feeling sluggish even when nothing had actually changed.
+      // 30s is long enough to kill that chatter but short enough that stock/price edits from
+      // another device still show up fast.
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => {
   const [showSplash, setShowSplash] = useState(true);
@@ -42,6 +73,7 @@ const App = () => {
       <Sonner />
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       <BrowserRouter>
+        <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/pos" element={<Layout><POSTerminal /></Layout>} />
@@ -73,6 +105,7 @@ const App = () => {
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </TooltipProvider>
     </AuthProvider>
