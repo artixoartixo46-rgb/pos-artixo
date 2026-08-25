@@ -284,7 +284,10 @@ export default function POSTerminal() {
   // Category tabs above the product grid - merges the managed Product Category list with any
   // legacy category strings already sitting on products (same reasoning as the Items page).
   const { data: managedCategories } = useQuery({
-    queryKey: ["product-categories"],
+    // Deliberately NOT "product-categories" - that key belongs to the Product Category page's
+    // own full-row query. Sharing it with this narrower `select("name")` query corrupts
+    // whichever page reads the cache second (missing id/created_at crashes that page's render).
+    queryKey: ["product-category-names"],
     queryFn: async () => {
       const { data, error } = await supabase.from("product_categories").select("name").order("name");
       if (error) throw error;

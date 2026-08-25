@@ -180,7 +180,14 @@ export default function ProductCategory() {
                 <TableRow key={category.id}>
                   <TableCell className="font-medium">{category.name}</TableCell>
                   <TableCell>{category.description || "-"}</TableCell>
-                  <TableCell>{format(new Date(category.created_at), "dd MMM yyyy")}</TableCell>
+                  <TableCell>
+                    {/* Defensive: a malformed/missing created_at (e.g. a stale cache entry from
+                        elsewhere with a different row shape) used to throw inside format() and
+                        blank the whole page with no error boundary to catch it. */}
+                    {category.created_at && !isNaN(new Date(category.created_at).getTime())
+                      ? format(new Date(category.created_at), "dd MMM yyyy")
+                      : "-"}
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(category)}>

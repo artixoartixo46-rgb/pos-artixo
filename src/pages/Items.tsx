@@ -233,7 +233,12 @@ export default function Items() {
   // showed categories already in use by an existing product, so a brand-new category created
   // there (with no products in it yet) never showed up here until someone typed it manually.
   const { data: managedCategories } = useQuery({
-    queryKey: ["product-categories"],
+    // Deliberately NOT "product-categories" - that key is owned by the Product Category page's
+    // own query, which selects full rows (id/description/created_at). Sharing a key with a
+    // narrower `select("name")` query corrupts whichever page reads the cache second: the
+    // Product Category table then tries to format() a missing created_at and crashes to a
+    // blank white screen (no error boundary catches it).
+    queryKey: ["product-category-names"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("product_categories")
