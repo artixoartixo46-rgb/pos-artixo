@@ -10,6 +10,7 @@ import { Package, Plus, Edit, Trash2, Search, Filter, Download, Check, ChevronsU
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { QRCodeGenerator } from "@/components/QRCodeGenerator";
+import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
 import {
   getFavoriteTemplateId,
@@ -882,7 +883,7 @@ export default function Items() {
                   <TableHead className="text-center font-bold text-foreground">Alert Level</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Price</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Case</TableHead>
-                  <TableHead className="text-center font-bold text-foreground">Barcode</TableHead>
+                  <TableHead className="text-center font-bold text-foreground">QR Code</TableHead>
                   <TableHead className="text-center font-bold text-foreground">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -929,8 +930,17 @@ export default function Items() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-center font-mono text-sm">
-                          {product.barcode || "N/A"}
+                        <TableCell className="text-center">
+                          {product.barcode ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="bg-white p-1 rounded">
+                                <QRCodeSVG value={String(product.barcode)} size={40} level="M" includeMargin={false} />
+                              </div>
+                              <span className="font-mono text-[10px] text-muted-foreground">{product.barcode}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">N/A</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center gap-2">
