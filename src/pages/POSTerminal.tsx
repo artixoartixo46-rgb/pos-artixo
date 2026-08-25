@@ -1320,14 +1320,25 @@ export default function POSTerminal() {
   // Supabase). Only works for invoices that have actually been written to the sales table -
   // offline-queued sales use a local placeholder invoice number until they sync, so callers
   // should keep using printReceipt() for those.
-  const showDigitalReceipt = async (invoiceNumber: string) => {
+  // autoSendPhone: only passed right after a real checkout completes (see onSuccess below), never
+  // on a manual reopen of this dialog - so re-viewing an old receipt never re-fires WhatsApp.
+  const showDigitalReceipt = async (invoiceNumber: string, autoSendPhone?: string | null) => {
     const link = `${window.location.origin}/receipt/${encodeURIComponent(invoiceNumber)}`;
     try {
       const qrUrl = await QRCode.toDataURL(link, { width: 320, margin: 1, errorCorrectionLevel: "M" });
       setDigitalReceiptQrUrl(qrUrl);
       setDigitalReceiptLink(link);
-      setWhatsappPhone(lastReceiptData?.customerPhone || "");
+      setWhatsappPhone(autoSendPhone || lastReceiptData?.customerPhone || "");
       setDigitalReceiptOpen(true);
+      // Payment done -> WhatsApp opens on its own with the bill pre-filled, no extra tap inside
+      // the app needed. Only when a phone number is actually on file for this sale (credit
+      // customer, or a walk-in whose number was entered) - a plain cash sale with no phone
+      // attached still just shows the QR, nothing pops up. WhatsApp itself still requires one
+      // tap on its own Send button - no free method can skip that last step from outside WhatsApp.
+      if (autoSendPhone) {
+        const message = `Thank you for your purchase! View your bill here: ${link}`;
+        openWhatsAppShare(autoSendPhone, message);
+      }
     } catch {
       toast({
         title: "Couldn't generate QR",
@@ -1580,7 +1591,7 @@ export default function POSTerminal() {
       // unless Digital Receipt mode is on, in which case show a scan-to-view QR instead to save
       // paper. Offline-queued sales don't have a real invoice in the DB yet, so those still print.
       if (isDigitalReceiptModeEnabled() && !data.offline) {
-        showDigitalReceipt(data.receiptData.invoiceNumber);
+        showDigitalReceipt(data.receiptData.invoiceNumber, data.receiptData.customerPhone);
       } else {
         printReceipt(data.receiptData);
       }
