@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,10 @@ export default function POSTerminal() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  // "all" = no category filter. Lets a cashier jump straight to e.g. "Vegetables" instead of
+  // scrolling/typing - loose produce has no barcode to scan, so a fast tap-to-browse path
+  // matters more here than for packaged/barcoded goods.
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [lastScannedQR, setLastScannedQR] = useState("");
   const [discount, setDiscount] = useState<number>(0);
   const [discountType, setDiscountType] = useState<DiscountType>("percentage");
@@ -248,7 +252,7 @@ export default function POSTerminal() {
   }, []);
 
   const { data: products } = useQuery({
-    queryKey: ["products", searchTerm],
+    queryKey: ["products", searchTerm, categoryFilter],
     queryFn: async () => {
       if (!navigator.onLine) {
         return await searchCachedProducts(searchTerm);
@@ -259,8 +263,15 @@ export default function POSTerminal() {
         if (searchTerm) {
           query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,qr_code_number.ilike.%${searchTerm}%`);
         }
+        if (categoryFilter !== "all") {
+          query = query.eq("category", categoryFilter);
+        }
 
-        const { data, error } = await query.limit(20);
+        // Typing a search term already narrows results to a handful of matches, so 20 is
+        // plenty. Browsing a category with no search term (the whole point of the category
+        // tabs below) needs a bigger ceiling or most of that category would never show up.
+        const limit = !searchTerm && categoryFilter !== "all" ? 60 : 20;
+        const { data, error } = await query.limit(limit);
         if (error) throw error;
         return data || [];
       } catch (err) {
@@ -269,6 +280,76 @@ export default function POSTerminal() {
       }
     },
   });
+
+  // Category tabs above the product grid - merges the managed Product Category list with any
+  // legacy category strings already sitting on products (same reasoning as the Items page).
+  const { data: managedCategories } = useQuery({
+    queryKey: ["product-categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("product_categories").select("name").order("name");
+      if (error) throw error;
+      return data as { name: string }[];
+    },
+  });
+
+  const { data: allProductCategories } = useQuery({
+    queryKey: ["all-product-categories-for-pos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("products").select("category");
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60_000,
+  });
+
+  const posCategories = useMemo(() => {
+    const fromProducts = (allProductCategories?.map((p: any) => p.category).filter(Boolean) || []) as string[];
+    const fromManaged = (managedCategories?.map(c => c.name).filter(Boolean) || []) as string[];
+    return Array.from(new Set([...fromManaged, ...fromProducts])).sort((a, b) => a.localeCompare(b));
+  }, [allProductCategories, managedCategories]);
+
+  // Sort the currently-visible grid by how often each product actually sells (last 30 days),
+  // so a cashier who taps "Vegetables" sees tomato/onion/potato at the very top instead of
+  // having to scroll an alphabetical list to find what's sold a hundred times today. Scoped to
+  // a 10-minute cache since it's about general ranking, not something that needs to be live.
+  const { data: salesFrequency } = useQuery({
+    queryKey: ["pos-sales-frequency-30d"],
+    queryFn: async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 30);
+      const { data: sales, error: sErr } = await supabase
+        .from("sales")
+        .select("id")
+        .gte("sale_date", since.toISOString());
+      if (sErr) throw sErr;
+      const saleIds = (sales || []).map((s: any) => s.id);
+      if (saleIds.length === 0) return new Map<string, number>();
+
+      const { data: items, error: iErr } = await supabase
+        .from("sale_items")
+        .select("product_id, quantity")
+        .in("sale_id", saleIds);
+      if (iErr) throw iErr;
+
+      const qtyByProduct = new Map<string, number>();
+      for (const item of items || []) {
+        if (!item.product_id) continue;
+        qtyByProduct.set(item.product_id, (qtyByProduct.get(item.product_id) || 0) + Number(item.quantity || 0));
+      }
+      return qtyByProduct;
+    },
+    staleTime: 10 * 60_000,
+  });
+
+  const sortedProducts = useMemo<any[] | undefined>(() => {
+    if (!products) return undefined;
+    const freq = salesFrequency || new Map<string, number>();
+    return [...(products as any[])].sort((a: any, b: any) => {
+      const diff = (freq.get(b.id) || 0) - (freq.get(a.id) || 0);
+      if (diff !== 0) return diff;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+  }, [products, salesFrequency]);
 
   const { data: shopSettings } = useQuery({
     queryKey: ["settings-for-receipt"],
@@ -2387,8 +2468,39 @@ export default function POSTerminal() {
                 </div>
               )}
 
+              {/* Category quick-filter - loose produce like vegetables has no barcode to scan, so
+                  tapping straight to a category (then the top-ranked item within it) is the
+                  fastest path for high-volume, low-ticket sales. */}
+              {posCategories.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  <button
+                    onClick={() => setCategoryFilter("all")}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      categoryFilter === "all"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "glass border-border/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    All
+                  </button>
+                  {posCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoryFilter(cat)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        categoryFilter === cat
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "glass border-border/50 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto mt-4">
-                {products?.map((product) => {
+                {sortedProducts?.map((product) => {
                   const hasCase = product.case_size && Number(product.case_size) > 1;
                   const caseTotal = product.case_price != null
                     ? Number(product.case_price)
