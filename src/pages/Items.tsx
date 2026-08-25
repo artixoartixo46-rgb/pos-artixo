@@ -229,11 +229,29 @@ export default function Items() {
     },
   });
 
-  // Get unique categories for filter and combobox
-  const categories = useMemo(() => 
-    Array.from(new Set(products?.map(p => p.category).filter(Boolean))) as string[],
-    [products]
-  );
+  // Categories managed on the Product Category page - the Add Product combobox previously only
+  // showed categories already in use by an existing product, so a brand-new category created
+  // there (with no products in it yet) never showed up here until someone typed it manually.
+  const { data: managedCategories } = useQuery({
+    queryKey: ["product-categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_categories")
+        .select("name")
+        .order("name");
+      if (error) throw error;
+      return data as { name: string }[];
+    },
+  });
+
+  // Get unique categories for filter and combobox - merges the managed Product Category list
+  // with any legacy/ad-hoc category strings already sitting on products but not (yet) in
+  // product_categories, so nothing that used to show up silently disappears.
+  const categories = useMemo(() => {
+    const fromProducts = (products?.map(p => p.category).filter(Boolean) || []) as string[];
+    const fromManaged = (managedCategories?.map(c => c.name).filter(Boolean) || []) as string[];
+    return Array.from(new Set([...fromManaged, ...fromProducts])).sort((a, b) => a.localeCompare(b));
+  }, [products, managedCategories]);
 
   // Filter products based on search and category
   const filteredProducts = products?.filter(product => {
