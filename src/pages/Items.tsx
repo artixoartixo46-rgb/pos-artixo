@@ -931,12 +931,12 @@ export default function Items() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {product.barcode ? (
+                          {product.qr_code_number ? (
                             <div className="flex flex-col items-center gap-1">
                               <div className="bg-white p-1 rounded">
-                                <QRCodeSVG value={String(product.barcode)} size={40} level="M" includeMargin={false} />
+                                <QRCodeSVG value={String(product.qr_code_number)} size={40} level="M" includeMargin={false} />
                               </div>
-                              <span className="font-mono text-[10px] text-muted-foreground">{product.barcode}</span>
+                              <span className="font-mono text-[10px] text-muted-foreground">{product.qr_code_number}</span>
                             </div>
                           ) : (
                             <span className="text-muted-foreground">N/A</span>
