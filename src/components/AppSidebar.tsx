@@ -21,7 +21,7 @@ import {
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, ownerOnly: false },
   { title: "POS Terminal", url: "/pos", icon: ShoppingCart, ownerOnly: false },
-  { title: "Items", url: "/items", icon: Package, ownerOnly: true },
+  { title: "Items", url: "/items", icon: Package, ownerOnly: false },
   { title: "Product Category", url: "/product-category", icon: FolderOpen, ownerOnly: false },
   { title: "Vendors", url: "/vendors", icon: Users, ownerOnly: false },
   { title: "Order Management", url: "/order-management", icon: ClipboardList, ownerOnly: false },

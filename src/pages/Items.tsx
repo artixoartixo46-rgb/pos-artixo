@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Package, Plus, Edit, Trash2, Search, Filter, Download, Check, ChevronsUpDown, Boxes, X, Printer } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useRole } from "@/contexts/RoleContext";
 import { QRCodeGenerator } from "@/components/QRCodeGenerator";
 import { QRCodeSVG } from "qrcode.react";
 import QRCode from "qrcode";
@@ -41,6 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export default function Items() {
+  const { isOwner } = useRole();
   const [open, setOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -967,15 +969,20 @@ export default function Items() {
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="glass border-blue-500/50 hover:bg-blue-500/20 hover:border-blue-500"
-                              onClick={() => handleEdit(product)}
-                            >
-                              <Edit className="h-3 w-3 mr-1" />
-                              Edit
-                            </Button>
+                            {/* Cashier can browse/search Items (prices, stock) but editing a
+                                product's data is Owner-only - hidden here, not just disabled, so
+                                there's no "why is this greyed out" question at the till. */}
+                            {isOwner && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="glass border-blue-500/50 hover:bg-blue-500/20 hover:border-blue-500"
+                                onClick={() => handleEdit(product)}
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Edit
+                              </Button>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
