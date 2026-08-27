@@ -337,6 +337,53 @@ export type Database = {
           },
         ]
       }
+      price_change_alerts: {
+        Row: {
+          id: string
+          product_id: string | null
+          product_name: string
+          changed_by: string
+          old_price: number | null
+          new_price: number | null
+          old_cost: number | null
+          new_cost: number | null
+          acknowledged: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id?: string | null
+          product_name: string
+          changed_by?: string
+          old_price?: number | null
+          new_price?: number | null
+          old_cost?: number | null
+          new_cost?: number | null
+          acknowledged?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string | null
+          product_name?: string
+          changed_by?: string
+          old_price?: number | null
+          new_price?: number | null
+          old_cost?: number | null
+          new_cost?: number | null
+          acknowledged?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_change_alerts_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_receiving: {
         Row: {
           cost_price: number

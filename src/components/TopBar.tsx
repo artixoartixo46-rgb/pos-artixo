@@ -12,14 +12,40 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck, ShieldAlert } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
 import { useRole } from "@/contexts/RoleContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function TopBar() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { isOwner, logout } = useRole();
+
+  // Owner-only: cashiers can now use Items > Edit too, so this is the "easy to catch" net for
+  // price/cost tampering at the till - every cashier price or cost change gets logged (see
+  // Items.tsx saveMutation) and shows up here until the owner dismisses it.
+  const { data: priceAlerts } = useQuery({
+    queryKey: ["topbar-price-alerts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("price_change_alerts")
+        .select("id, product_name, old_price, new_price, old_cost, new_cost, created_at")
+        .eq("acknowledged", false)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: isOwner,
+    refetchInterval: 30000,
+  });
+
+  const dismissPriceAlert = async (id: string) => {
+    await supabase.from("price_change_alerts").update({ acknowledged: true }).eq("id", id);
+    queryClient.invalidateQueries({ queryKey: ["topbar-price-alerts"] });
+  };
 
   const { data: lowStockItems } = useQuery({
     queryKey: ["topbar-low-stock"],
@@ -94,7 +120,8 @@ export default function TopBar() {
     pendingSyncCount +
     (pendingCheckins?.length || 0) +
     (heldBillsCount || 0) +
-    (creditOutstanding?.count ? 1 : 0); // one aggregated line, not per-customer
+    (creditOutstanding?.count ? 1 : 0) + // one aggregated line, not per-customer
+    (priceAlerts?.length || 0);
   const initials = (shopSettings?.business_name || "Artixo").trim().slice(0, 2).toUpperCase();
 
   return (
@@ -163,6 +190,29 @@ export default function TopBar() {
             {notifCount === 0 && (
               <div className="px-2 py-4 text-sm text-muted-foreground text-center">You're all caught up</div>
             )}
+            {/* Cashier changed a price/cost in Items - shown first, it's the one that matters
+                most. Clicking dismisses it (marks acknowledged) rather than just navigating,
+                since there's nothing to "go to" beyond having seen the number. */}
+            {(priceAlerts || []).map((alert) => (
+              <DropdownMenuItem
+                key={alert.id}
+                onClick={() => dismissPriceAlert(alert.id)}
+                className="cursor-pointer items-start gap-2"
+              >
+                <ShieldAlert className="h-4 w-4 mr-2 text-destructive shrink-0 mt-0.5" />
+                <span className="text-xs leading-snug">
+                  <span className="font-medium">{alert.product_name}</span> - cashier changed{" "}
+                  {Number(alert.old_price) !== Number(alert.new_price) && (
+                    <>price Rs.{Number(alert.old_price).toFixed(2)} &rarr; Rs.{Number(alert.new_price).toFixed(2)}</>
+                  )}
+                  {Number(alert.old_price) !== Number(alert.new_price) && Number(alert.old_cost) !== Number(alert.new_cost) && ", "}
+                  {Number(alert.old_cost) !== Number(alert.new_cost) && (
+                    <>cost Rs.{Number(alert.old_cost || 0).toFixed(2)} &rarr; Rs.{Number(alert.new_cost || 0).toFixed(2)}</>
+                  )}
+                  <span className="block text-muted-foreground mt-0.5">Tap to dismiss</span>
+                </span>
+              </DropdownMenuItem>
+            ))}
             {pendingSyncCount > 0 && (
               <DropdownMenuItem onClick={() => navigate("/pos")} className="cursor-pointer">
                 <RefreshCw className="h-4 w-4 mr-2 text-amber-500 shrink-0" />

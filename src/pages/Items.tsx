@@ -317,11 +317,34 @@ export default function Items() {
   const saveMutation = useMutation({
     mutationFn: async (vars: { data: any; isNew: boolean }) => {
       if (editingProduct) {
+        const priceChanged = Number(vars.data.price) !== Number(editingProduct.price);
+        const costChanged = Number(vars.data.cost ?? 0) !== Number(editingProduct.cost ?? 0);
+
         const { error } = await supabase
           .from("products")
           .update(vars.data)
           .eq("id", editingProduct.id);
         if (error) throw error;
+
+        // Fraud-visibility net: cashiers can now use Edit too, but if a cashier (not the owner)
+        // just changed the sale price or cost, log it so the owner can spot it easily - price/
+        // cost tampering at the till is the main "cashier fraud" risk an owner worries about.
+        // Best-effort only: a logging failure here should never block the actual product save.
+        if (!isOwner && (priceChanged || costChanged)) {
+          try {
+            await supabase.from("price_change_alerts").insert({
+              product_id: editingProduct.id,
+              product_name: vars.data.name || editingProduct.name,
+              changed_by: "cashier",
+              old_price: editingProduct.price ?? null,
+              new_price: vars.data.price ?? null,
+              old_cost: editingProduct.cost ?? null,
+              new_cost: vars.data.cost ?? null,
+            });
+          } catch (alertErr) {
+            console.error("Couldn't log price change alert:", alertErr);
+          }
+        }
       } else {
         const { error } = await supabase.from("products").insert(vars.data);
         if (error) throw error;
@@ -969,20 +992,18 @@ export default function Items() {
                         </TableCell>
                         <TableCell className="text-center">
                           <div className="flex justify-center gap-2">
-                            {/* Cashier can browse/search Items (prices, stock) but editing a
-                                product's data is Owner-only - hidden here, not just disabled, so
-                                there's no "why is this greyed out" question at the till. */}
-                            {isOwner && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="glass border-blue-500/50 hover:bg-blue-500/20 hover:border-blue-500"
-                                onClick={() => handleEdit(product)}
-                              >
-                                <Edit className="h-3 w-3 mr-1" />
-                                Edit
-                              </Button>
-                            )}
+                            {/* Cashier can use Edit too now - but if they change price or cost
+                                here, saveMutation below fires an alert to price_change_alerts so
+                                the owner can spot it (see notes there). */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="glass border-blue-500/50 hover:bg-blue-500/20 hover:border-blue-500"
+                              onClick={() => handleEdit(product)}
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
