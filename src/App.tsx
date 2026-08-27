@@ -83,18 +83,18 @@ const App = () => {
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/pos" element={<Layout><POSTerminal /></Layout>} />
           <Route path="/items" element={<Layout><OwnerRoute><Items /></OwnerRoute></Layout>} />
-          <Route path="/product-category" element={<Layout><OwnerRoute><ProductCategory /></OwnerRoute></Layout>} />
-          <Route path="/vendors" element={<Layout><OwnerRoute><Vendors /></OwnerRoute></Layout>} />
-          <Route path="/order-management" element={<Layout><OwnerRoute><OrderManagement /></OwnerRoute></Layout>} />
+          <Route path="/product-category" element={<Layout><ProductCategory /></Layout>} />
+          <Route path="/vendors" element={<Layout><Vendors /></Layout>} />
+          <Route path="/order-management" element={<Layout><OrderManagement /></Layout>} />
           <Route path="/credit-customers" element={<Layout><CreditCustomers /></Layout>} />
-          <Route path="/credit-purchase-history" element={<Layout><OwnerRoute><CreditPurchaseHistory /></OwnerRoute></Layout>} />
+          <Route path="/credit-purchase-history" element={<Layout><CreditPurchaseHistory /></Layout>} />
           <Route path="/product-receiving" element={<Layout><OwnerRoute><ProductReceiving /></OwnerRoute></Layout>} />
-          <Route path="/product-inventory" element={<Layout><OwnerRoute><ProductInventory /></OwnerRoute></Layout>} />
-          <Route path="/stock-take" element={<Layout><OwnerRoute><StockTake /></OwnerRoute></Layout>} />
+          <Route path="/product-inventory" element={<Layout><ProductInventory /></Layout>} />
+          <Route path="/stock-take" element={<Layout><StockTake /></Layout>} />
           <Route path="/returns" element={<Layout><Returns /></Layout>} />
-          <Route path="/barcode-print" element={<Layout><OwnerRoute><BarcodePrint /></OwnerRoute></Layout>} />
+          <Route path="/barcode-print" element={<Layout><BarcodePrint /></Layout>} />
           <Route path="/reports" element={<Layout><OwnerRoute><Reports /></OwnerRoute></Layout>} />
-          <Route path="/demand-forecast" element={<Layout><OwnerRoute><DemandForecast /></OwnerRoute></Layout>} />
+          <Route path="/demand-forecast" element={<Layout><DemandForecast /></Layout>} />
           <Route path="/settings" element={<Layout><OwnerRoute><SettingsPage /></OwnerRoute></Layout>} />
           {/* Standalone, no Layout/sidebar - a vendor's own phone lands here after scanning
               the receiving-counter QR, no login involved. */}

@@ -447,7 +447,7 @@ export default function SettingsPage() {
                   placeholder="0000"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  POS Terminal, Returns, Credit Customers only - Items/Reports/Vendors/Settings etc. stay hidden.
+                  Everything except Items, Reports, Product Receiving and Settings - those stay Owner-only.
                 </p>
               </div>
             </div>
