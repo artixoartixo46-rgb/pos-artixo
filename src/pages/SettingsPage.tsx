@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2, ShieldCheck } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2, ShieldCheck, Users, Pencil, Trash2, Plus, Target } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import QRCodeLib from "qrcode";
@@ -105,6 +105,109 @@ export default function SettingsPage() {
       return;
     }
     updateMutation.mutate(formData);
+  };
+
+  // ---- Cashier management (individual identity + daily target/salary for the performance
+  // incentive system) - separate from the shared Cashier PIN above, which still works as a
+  // no-name fallback for shops that don't want to bother naming each cashier. ----
+  interface CashierRow {
+    id: string;
+    name: string;
+    pin: string;
+    daily_target: number;
+    base_salary: number;
+    bonus_percent: number;
+    active: boolean;
+  }
+
+  const { data: cashiers, isLoading: cashiersLoading } = useQuery({
+    queryKey: ["cashiers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cashiers").select("*").order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data || []) as CashierRow[];
+    },
+  });
+
+  const [cashierDialogOpen, setCashierDialogOpen] = useState(false);
+  const [editingCashier, setEditingCashier] = useState<CashierRow | null>(null);
+  const [cashierForm, setCashierForm] = useState({
+    name: "",
+    pin: "",
+    daily_target: "5000",
+    base_salary: "2000",
+    bonus_percent: "5",
+    active: true,
+  });
+
+  const openAddCashier = () => {
+    setEditingCashier(null);
+    setCashierForm({ name: "", pin: "", daily_target: "5000", base_salary: "2000", bonus_percent: "5", active: true });
+    setCashierDialogOpen(true);
+  };
+
+  const openEditCashier = (c: CashierRow) => {
+    setEditingCashier(c);
+    setCashierForm({
+      name: c.name,
+      pin: c.pin,
+      daily_target: String(c.daily_target),
+      base_salary: String(c.base_salary),
+      bonus_percent: String(c.bonus_percent),
+      active: c.active,
+    });
+    setCashierDialogOpen(true);
+  };
+
+  const saveCashierMutation = useMutation({
+    mutationFn: async () => {
+      if (!cashierForm.name.trim()) throw new Error("Name is required");
+      if (cashierForm.pin.trim().length < 4) throw new Error("PIN must be at least 4 digits");
+
+      const payload = {
+        name: cashierForm.name.trim(),
+        pin: cashierForm.pin.trim(),
+        daily_target: parseFloat(cashierForm.daily_target) || 0,
+        base_salary: parseFloat(cashierForm.base_salary) || 0,
+        bonus_percent: parseFloat(cashierForm.bonus_percent) || 0,
+        active: cashierForm.active,
+      };
+
+      if (editingCashier) {
+        const { error } = await supabase.from("cashiers").update(payload).eq("id", editingCashier.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("cashiers").insert(payload);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cashiers"] });
+      setCashierDialogOpen(false);
+      toast.success(editingCashier ? "Cashier updated" : "Cashier added");
+    },
+    onError: (err: any) => toast.error(err?.message || "Couldn't save cashier"),
+  });
+
+  const deleteCashierMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("cashiers").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cashiers"] });
+      toast.success("Cashier removed");
+    },
+    onError: () => toast.error("Couldn't remove cashier"),
+  });
+
+  const toggleCashierActive = async (c: CashierRow) => {
+    const { error } = await supabase.from("cashiers").update({ active: !c.active }).eq("id", c.id);
+    if (error) {
+      toast.error("Couldn't update cashier");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["cashiers"] });
   };
 
   // ---- Receipt printer (WebUSB direct ESC/POS) ----
@@ -461,6 +564,72 @@ export default function SettingsPage() {
       </Card>
 
       <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            <h2 className="text-xl font-semibold">Manage Cashiers</h2>
+          </div>
+          <Button size="sm" className="gap-2" onClick={openAddCashier}>
+            <Plus className="h-4 w-4" />
+            Add Cashier
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Give each cashier their own name and PIN so sales are attributed to them individually -
+          needed for the daily target / salary performance report in Reports. Their PIN logs them
+          in as Cashier, same access as the shared Cashier PIN above.
+        </p>
+
+        {cashiersLoading ? (
+          <p className="text-sm text-muted-foreground py-4">Loading cashiers...</p>
+        ) : !cashiers || cashiers.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            No named cashiers yet. Everyone still shares the single Cashier PIN above until you add one here.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {cashiers.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between p-3 rounded-md glass-card border-border/50 gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate flex items-center gap-2">
+                    {c.name}
+                    {!c.active && (
+                      <span className="text-xs font-normal text-muted-foreground">(inactive)</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                    <Target className="h-3 w-3" />
+                    Target Rs.{c.daily_target}/day · Base Rs.{c.base_salary} · +{c.bonus_percent}% bonus
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Switch checked={c.active} onCheckedChange={() => toggleCashierActive(c)} />
+                  <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => openEditCashier(c)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    onClick={() => {
+                      if (confirm(`Remove ${c.name}? Their past sales stay attributed to them, they just can't log in anymore.`)) {
+                        deleteCashierMutation.mutate(c.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-6 glass-card glass-hover border-border/50 max-w-3xl">
         <div className="flex items-center gap-2 mb-2">
           <Printer className="h-5 w-5 text-primary" />
           <h2 className="text-xl font-semibold">Receipt Printer</h2>
@@ -669,6 +838,92 @@ export default function SettingsPage() {
           )}
         </p>
       </Card>
+
+      <Dialog open={cashierDialogOpen} onOpenChange={setCashierDialogOpen}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              {editingCashier ? "Edit Cashier" : "Add Cashier"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label htmlFor="cashier_name">Name</Label>
+              <Input
+                id="cashier_name"
+                value={cashierForm.name}
+                onChange={(e) => setCashierForm({ ...cashierForm, name: e.target.value })}
+                placeholder="e.g. Kumar"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cashier_own_pin">PIN</Label>
+              <Input
+                id="cashier_own_pin"
+                type="text"
+                inputMode="numeric"
+                value={cashierForm.pin}
+                onChange={(e) => setCashierForm({ ...cashierForm, pin: e.target.value })}
+                placeholder="At least 4 digits"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="daily_target">Daily Target (Rs.)</Label>
+                <Input
+                  id="daily_target"
+                  type="number"
+                  min="0"
+                  value={cashierForm.daily_target}
+                  onChange={(e) => setCashierForm({ ...cashierForm, daily_target: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="base_salary">Base Salary/Day (Rs.)</Label>
+                <Input
+                  id="base_salary"
+                  type="number"
+                  min="0"
+                  value={cashierForm.base_salary}
+                  onChange={(e) => setCashierForm({ ...cashierForm, base_salary: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="bonus_percent">Bonus % (per % achievement over target)</Label>
+              <Input
+                id="bonus_percent"
+                type="number"
+                min="0"
+                step="0.1"
+                value={cashierForm.bonus_percent}
+                onChange={(e) => setCashierForm({ ...cashierForm, bonus_percent: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                e.g. 5% means for every 10% over target achieved, salary goes up 0.5x that day's base.
+                Exact formula is applied in the Reports &gt; Cashier Performance view.
+              </p>
+            </div>
+            <div className="flex items-center justify-between glass-card border-border/50 rounded-md px-3 py-2">
+              <Label htmlFor="cashier_active" className="text-sm cursor-pointer">Active (can log in)</Label>
+              <Switch
+                id="cashier_active"
+                checked={cashierForm.active}
+                onCheckedChange={(checked) => setCashierForm({ ...cashierForm, active: checked })}
+              />
+            </div>
+            <Button
+              className="w-full gap-2"
+              onClick={() => saveCashierMutation.mutate()}
+              disabled={saveCashierMutation.isPending}
+            >
+              <Save className="h-4 w-4" />
+              {saveCashierMutation.isPending ? "Saving..." : editingCashier ? "Save Changes" : "Add Cashier"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={catalogQrOpen} onOpenChange={setCatalogQrOpen}>
         <DialogContent className="glass-card border-border/50 sm:max-w-sm">

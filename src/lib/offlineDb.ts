@@ -34,6 +34,8 @@ export interface PendingSale {
     customerId?: string | null;
     customerName?: string | null;
     customerPhone?: string | null;
+    cashierId?: string | null;
+    cashierName?: string | null;
   };
 }
 

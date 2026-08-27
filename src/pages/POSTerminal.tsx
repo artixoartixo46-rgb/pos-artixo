@@ -20,6 +20,7 @@ import {
   type ScaleConnectionType,
 } from "@/lib/scaleReader";
 import { useToast } from "@/hooks/use-toast";
+import { useRole } from "@/contexts/RoleContext";
 import { useVoiceSearch, phoneticMatch } from "@/hooks/useVoiceSearch";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -231,6 +232,7 @@ export default function POSTerminal() {
   // whatever number the cashier types in on the spot.
   const [whatsappPhone, setWhatsappPhone] = useState("");
   const { toast } = useToast();
+  const { cashierId, cashierName } = useRole();
   const queryClient = useQueryClient();
   const receiptRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1458,6 +1460,8 @@ export default function POSTerminal() {
           customerId: selectedCustomer?.id || null,
           customerName: selectedCustomer?.name || null,
           customerPhone: selectedCustomer?.phone || null,
+          cashierId: cashierId || null,
+          cashierName: cashierName || null,
         });
         for (const item of cart) {
           if (!item.product_id || item.product_id.startsWith("temp_")) continue;
@@ -1507,6 +1511,8 @@ export default function POSTerminal() {
             customer_id: selectedCustomer?.id || null,
             customer_name: selectedCustomer?.name || null,
             customer_phone: selectedCustomer?.phone || null,
+            cashier_id: cashierId || null,
+            cashier_name: cashierName || null,
             subtotal: saleSubtotal,
             discount_amount: saleDiscountAmount,
             total_amount: totalAmount,

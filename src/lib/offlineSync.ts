@@ -42,6 +42,8 @@ async function syncOneSale(sale: PendingSale): Promise<void> {
       customer_id: payload.customerId || null,
       customer_name: payload.customerName || null,
       customer_phone: payload.customerPhone || null,
+      cashier_id: payload.cashierId || null,
+      cashier_name: payload.cashierName || null,
       subtotal: payload.subtotal,
       discount_amount: payload.discountAmount,
       total_amount: payload.total,

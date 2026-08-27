@@ -11,6 +11,8 @@ import { supabase } from "@/integrations/supabase/client";
 export type Role = "owner" | "cashier";
 
 const ROLE_KEY = "pos_role";
+const CASHIER_ID_KEY = "pos_cashier_id";
+const CASHIER_NAME_KEY = "pos_cashier_name";
 
 interface RoleContextValue {
   role: Role | null;
@@ -18,6 +20,8 @@ interface RoleContextValue {
   login: (pin: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   isOwner: boolean;
+  cashierId: string | null;
+  cashierName: string | null;
 }
 
 const RoleContext = createContext<RoleContextValue | undefined>(undefined);
@@ -27,7 +31,16 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     const stored = sessionStorage.getItem(ROLE_KEY);
     return stored === "owner" || stored === "cashier" ? stored : null;
   });
+  const [cashierId, setCashierId] = useState<string | null>(() => sessionStorage.getItem(CASHIER_ID_KEY));
+  const [cashierName, setCashierName] = useState<string | null>(() => sessionStorage.getItem(CASHIER_NAME_KEY));
   const [loading, setLoading] = useState(false);
+
+  const setCashierIdentity = (id: string | null, name: string | null) => {
+    if (id) sessionStorage.setItem(CASHIER_ID_KEY, id); else sessionStorage.removeItem(CASHIER_ID_KEY);
+    if (name) sessionStorage.setItem(CASHIER_NAME_KEY, name); else sessionStorage.removeItem(CASHIER_NAME_KEY);
+    setCashierId(id);
+    setCashierName(name);
+  };
 
   const login = async (pin: string): Promise<{ success: boolean; error?: string }> => {
     setLoading(true);
@@ -44,11 +57,29 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
       if (pin === ownerPin) {
         sessionStorage.setItem(ROLE_KEY, "owner");
+        setCashierIdentity(null, null);
         setRole("owner");
         return { success: true };
       }
+
+      // Named cashiers (individual PIN, tied to their own daily target/salary) take priority
+      // over the old shared cashier_pin, so the performance system can attribute each sale.
+      const { data: namedCashier } = await supabase
+        .from("cashiers")
+        .select("id, name")
+        .eq("pin", pin)
+        .eq("active", true)
+        .maybeSingle();
+      if (namedCashier) {
+        sessionStorage.setItem(ROLE_KEY, "cashier");
+        setCashierIdentity(namedCashier.id, namedCashier.name);
+        setRole("cashier");
+        return { success: true };
+      }
+
       if (pin === cashierPin) {
         sessionStorage.setItem(ROLE_KEY, "cashier");
+        setCashierIdentity(null, null);
         setRole("cashier");
         return { success: true };
       }
@@ -62,11 +93,14 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     sessionStorage.removeItem(ROLE_KEY);
+    setCashierIdentity(null, null);
     setRole(null);
   };
 
   return (
-    <RoleContext.Provider value={{ role, loading, login, logout, isOwner: role === "owner" }}>
+    <RoleContext.Provider
+      value={{ role, loading, login, logout, isOwner: role === "owner", cashierId, cashierName }}
+    >
       {children}
     </RoleContext.Provider>
   );

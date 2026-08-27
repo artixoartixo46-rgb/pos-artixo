@@ -21,6 +21,9 @@ import {
   PackageX,
   Download,
   Loader2,
+  Users,
+  Target,
+  Wallet,
 } from "lucide-react";
 import { computeReorderSuggestions, groupSuggestionsByVendor, type ReorderTrend } from "@/lib/reorderSuggestions";
 import {
@@ -109,7 +112,7 @@ export default function Reports() {
     queryFn: async () => {
       let query = supabase
         .from("sales")
-        .select("id, customer_id, customer_name, total_amount, subtotal, discount_amount, payment_method, sale_date, status")
+        .select("id, customer_id, customer_name, total_amount, subtotal, discount_amount, payment_method, sale_date, status, cashier_id, cashier_name")
         .order("sale_date", { ascending: false });
       if (periodStart) query = query.gte("sale_date", periodStart);
       const { data, error } = await query;
@@ -175,6 +178,63 @@ export default function Reports() {
 
   const reorderGroups = useMemo(() => groupSuggestionsByVendor(reorderSuggestions || []), [reorderSuggestions]);
   const reorderTotalCost = (reorderSuggestions || []).reduce((sum, s) => sum + (s.estimatedCost || 0), 0);
+
+  // ---- Cashier performance (daily target / salary incentive) ----
+  const { data: cashiers } = useQuery({
+    queryKey: ["reports-cashiers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cashiers").select("*").order("name", { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // "today"/"week"/"month" map to a fixed number of days so the target scales with the period
+  // (7 days of a Rs.5000/day target = Rs.35000 target for the week). "all" has no fixed length,
+  // so it's approximated from how many distinct calendar days actually had a sale in the data -
+  // a cashier who's only been active 10 days shouldn't be judged against a target sized for 365.
+  const periodDays = useMemo(() => {
+    if (period === "today") return 1;
+    if (period === "week") return 7;
+    if (period === "month") return 30;
+    const days = new Set((sales || []).map((s: any) => (s.sale_date || "").slice(0, 10)));
+    return Math.max(days.size, 1);
+  }, [period, sales]);
+
+  const cashierPerformance = useMemo(() => {
+    const buckets: Record<string, { totalSales: number; bills: number }> = {};
+    for (const s of sales || []) {
+      if (!s.cashier_id) continue;
+      if (!buckets[s.cashier_id]) buckets[s.cashier_id] = { totalSales: 0, bills: 0 };
+      buckets[s.cashier_id].totalSales += Number(s.total_amount || 0);
+      buckets[s.cashier_id].bills += 1;
+    }
+    return (cashiers || []).map((c: any) => {
+      const bucket = buckets[c.id] || { totalSales: 0, bills: 0 };
+      const target = Number(c.daily_target || 0) * periodDays;
+      const achievementPct = target > 0 ? (bucket.totalSales / target) * 100 : 0;
+      const baseSalary = Number(c.base_salary || 0) * periodDays;
+      const bonusPct = Number(c.bonus_percent || 0);
+      // Every 1% achieved over 100% adds bonusPct% of the base salary - e.g. 120% achievement
+      // with a 5% bonus rate adds 20 * 5% = 100% extra... kept linear and transparent so the
+      // owner can tune bonus_percent per cashier in Settings until it matches what feels fair.
+      const overPct = Math.max(0, achievementPct - 100);
+      const bonusAmount = baseSalary * (overPct / 100) * (bonusPct / 100);
+      const estimatedSalary = baseSalary + bonusAmount;
+      return {
+        id: c.id,
+        name: c.name,
+        active: c.active,
+        totalSales: bucket.totalSales,
+        bills: bucket.bills,
+        target,
+        achievementPct,
+        baseSalary,
+        bonusAmount,
+        estimatedSalary,
+      };
+    }).sort((a, b) => b.totalSales - a.totalSales);
+  }, [sales, cashiers, periodDays]);
 
   // ---- Revenue summary ----
   const totalRevenue = (sales || []).reduce((sum: number, s: any) => sum + Number(s.total_amount || 0), 0);
@@ -401,6 +461,66 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Cashier performance - daily target / salary incentive, only shows cashiers set up in
+          Settings > Manage Cashiers. Target scales with the selected period above. */}
+      {cashiers && cashiers.length > 0 && (
+        <Card className="glass-card border-border/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Cashier Performance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Cashier</TableHead>
+                  <TableHead className="text-right">Bills</TableHead>
+                  <TableHead className="text-right">Sales</TableHead>
+                  <TableHead className="text-right">Target</TableHead>
+                  <TableHead className="text-right">Achievement</TableHead>
+                  <TableHead className="text-right">Est. Salary</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {cashierPerformance.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-medium">
+                      {c.name}
+                      {!c.active && <span className="text-xs text-muted-foreground ml-1">(inactive)</span>}
+                    </TableCell>
+                    <TableCell className="text-right">{c.bills}</TableCell>
+                    <TableCell className="text-right">Rs. {c.totalSales.toFixed(2)}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">Rs. {c.target.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant={c.achievementPct >= 100 ? "default" : c.achievementPct >= 70 ? "secondary" : "outline"}>
+                        {c.achievementPct.toFixed(0)}%
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-primary">
+                      Rs. {c.estimatedSalary.toFixed(2)}
+                      {c.bonusAmount > 0 && (
+                        <span className="block text-[10px] text-muted-foreground font-normal">
+                          +Rs. {c.bonusAmount.toFixed(2)} bonus
+                        </span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <p className="text-xs text-muted-foreground mt-3 flex items-start gap-1.5">
+              <Target className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              Target and base salary scale with the period filter above ({PERIOD_LABELS[period]}). Bonus is
+              earned only above 100% achievement, at each cashier's own bonus rate (set in Settings &gt;
+              Manage Cashiers) - e.g. 120% achievement at a 5% bonus rate adds 20 × 5% = 100% of base salary
+              as a bonus. Only sales made while logged in with a named cashier PIN count here.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Auto-reorder suggestions */}
       <Card className="glass-card border-border/50">

@@ -337,6 +337,39 @@ export type Database = {
           },
         ]
       }
+      cashiers: {
+        Row: {
+          id: string
+          name: string
+          pin: string
+          daily_target: number
+          base_salary: number
+          bonus_percent: number
+          active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          pin: string
+          daily_target?: number
+          base_salary?: number
+          bonus_percent?: number
+          active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          pin?: string
+          daily_target?: number
+          base_salary?: number
+          bonus_percent?: number
+          active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
       price_change_alerts: {
         Row: {
           id: string
@@ -568,6 +601,8 @@ export type Database = {
       sales: {
         Row: {
           balance: number | null
+          cashier_id: string | null
+          cashier_name: string | null
           created_at: string | null
           customer_id: string | null
           customer_name: string | null
@@ -585,6 +620,8 @@ export type Database = {
         }
         Insert: {
           balance?: number | null
+          cashier_id?: string | null
+          cashier_name?: string | null
           created_at?: string | null
           customer_id?: string | null
           customer_name?: string | null
@@ -602,6 +639,8 @@ export type Database = {
         }
         Update: {
           balance?: number | null
+          cashier_id?: string | null
+          cashier_name?: string | null
           created_at?: string | null
           customer_id?: string | null
           customer_name?: string | null
@@ -623,6 +662,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "credit_customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_cashier_id_fkey"
+            columns: ["cashier_id"]
+            isOneToOne: false
+            referencedRelation: "cashiers"
             referencedColumns: ["id"]
           },
         ]
