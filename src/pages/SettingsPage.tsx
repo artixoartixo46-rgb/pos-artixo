@@ -41,6 +41,8 @@ export default function SettingsPage() {
     currency: "LKR",
     currency_symbol: "Rs.",
     tax_rate: "0",
+    owner_pin: "",
+    cashier_pin: "",
   });
 
   const { isLoading } = useQuery({
@@ -60,6 +62,8 @@ export default function SettingsPage() {
           currency: data.currency || "LKR",
           currency_symbol: data.currency_symbol || "Rs.",
           tax_rate: data.tax_rate?.toString() || "0",
+          owner_pin: data.owner_pin || "1234",
+          cashier_pin: data.cashier_pin || "0000",
         });
       }
       return data;
@@ -92,6 +96,14 @@ export default function SettingsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.owner_pin.trim().length < 4 || formData.cashier_pin.trim().length < 4) {
+      toast.error("PINs must be at least 4 digits");
+      return;
+    }
+    if (formData.owner_pin.trim() === formData.cashier_pin.trim()) {
+      toast.error("Owner and Cashier PINs must be different");
+      return;
+    }
     updateMutation.mutate(formData);
   };
 
@@ -408,6 +420,35 @@ export default function SettingsPage() {
                   onChange={(e) => setFormData({ ...formData, currency_symbol: e.target.value })}
                   placeholder="Rs."
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border/50">
+              <div>
+                <Label htmlFor="owner_pin">Owner PIN</Label>
+                <Input
+                  id="owner_pin"
+                  type="text"
+                  inputMode="numeric"
+                  value={formData.owner_pin}
+                  onChange={(e) => setFormData({ ...formData, owner_pin: e.target.value })}
+                  placeholder="1234"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Full access to every page.</p>
+              </div>
+              <div>
+                <Label htmlFor="cashier_pin">Cashier PIN</Label>
+                <Input
+                  id="cashier_pin"
+                  type="text"
+                  inputMode="numeric"
+                  value={formData.cashier_pin}
+                  onChange={(e) => setFormData({ ...formData, cashier_pin: e.target.value })}
+                  placeholder="0000"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  POS Terminal, Returns, Credit Customers only - Items/Reports/Vendors/Settings etc. stay hidden.
+                </p>
               </div>
             </div>
 

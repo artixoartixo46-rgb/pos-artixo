@@ -9,6 +9,8 @@ import { SplashScreen } from "./components/SplashScreen";
 import Layout from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AuthProvider } from "./contexts/AuthContext";
+import { RoleProvider } from "./contexts/RoleContext";
+import OwnerRoute from "./components/OwnerRoute";
 
 // Every page used to be a top-level import, so ALL of them (charts, jsPDF/html2canvas for
 // report export, html5-qrcode, etc.) landed in one single JS bundle loaded before the very
@@ -75,24 +77,25 @@ const App = () => {
       {showSplash && <SplashScreen onFinish={() => setShowSplash(false)} />}
       <BrowserRouter>
         <ErrorBoundary>
+        <RoleProvider>
         <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/pos" element={<Layout><POSTerminal /></Layout>} />
-          <Route path="/items" element={<Layout><Items /></Layout>} />
-          <Route path="/product-category" element={<Layout><ProductCategory /></Layout>} />
-          <Route path="/vendors" element={<Layout><Vendors /></Layout>} />
-          <Route path="/order-management" element={<Layout><OrderManagement /></Layout>} />
+          <Route path="/items" element={<Layout><OwnerRoute><Items /></OwnerRoute></Layout>} />
+          <Route path="/product-category" element={<Layout><OwnerRoute><ProductCategory /></OwnerRoute></Layout>} />
+          <Route path="/vendors" element={<Layout><OwnerRoute><Vendors /></OwnerRoute></Layout>} />
+          <Route path="/order-management" element={<Layout><OwnerRoute><OrderManagement /></OwnerRoute></Layout>} />
           <Route path="/credit-customers" element={<Layout><CreditCustomers /></Layout>} />
-          <Route path="/credit-purchase-history" element={<Layout><CreditPurchaseHistory /></Layout>} />
-          <Route path="/product-receiving" element={<Layout><ProductReceiving /></Layout>} />
-          <Route path="/product-inventory" element={<Layout><ProductInventory /></Layout>} />
-          <Route path="/stock-take" element={<Layout><StockTake /></Layout>} />
+          <Route path="/credit-purchase-history" element={<Layout><OwnerRoute><CreditPurchaseHistory /></OwnerRoute></Layout>} />
+          <Route path="/product-receiving" element={<Layout><OwnerRoute><ProductReceiving /></OwnerRoute></Layout>} />
+          <Route path="/product-inventory" element={<Layout><OwnerRoute><ProductInventory /></OwnerRoute></Layout>} />
+          <Route path="/stock-take" element={<Layout><OwnerRoute><StockTake /></OwnerRoute></Layout>} />
           <Route path="/returns" element={<Layout><Returns /></Layout>} />
-          <Route path="/barcode-print" element={<Layout><BarcodePrint /></Layout>} />
-          <Route path="/reports" element={<Layout><Reports /></Layout>} />
-          <Route path="/demand-forecast" element={<Layout><DemandForecast /></Layout>} />
-          <Route path="/settings" element={<Layout><SettingsPage /></Layout>} />
+          <Route path="/barcode-print" element={<Layout><OwnerRoute><BarcodePrint /></OwnerRoute></Layout>} />
+          <Route path="/reports" element={<Layout><OwnerRoute><Reports /></OwnerRoute></Layout>} />
+          <Route path="/demand-forecast" element={<Layout><OwnerRoute><DemandForecast /></OwnerRoute></Layout>} />
+          <Route path="/settings" element={<Layout><OwnerRoute><SettingsPage /></OwnerRoute></Layout>} />
           {/* Standalone, no Layout/sidebar - a vendor's own phone lands here after scanning
               the receiving-counter QR, no login involved. */}
           <Route path="/vendor-checkin" element={<VendorCheckIn />} />
@@ -108,6 +111,7 @@ const App = () => {
           <Route path="*" element={<NotFound />} />
         </Routes>
         </Suspense>
+        </RoleProvider>
         </ErrorBoundary>
       </BrowserRouter>
     </TooltipProvider>

@@ -898,6 +898,8 @@ export type Database = {
           phone: string | null
           tax_rate: number | null
           updated_at: string
+          owner_pin: string
+          cashier_pin: string
         }
         Insert: {
           address?: string | null
@@ -914,6 +916,8 @@ export type Database = {
           phone?: string | null
           tax_rate?: number | null
           updated_at?: string
+          owner_pin?: string
+          cashier_pin?: string
         }
         Update: {
           address?: string | null
@@ -930,6 +934,8 @@ export type Database = {
           phone?: string | null
           tax_rate?: number | null
           updated_at?: string
+          owner_pin?: string
+          cashier_pin?: string
         }
         Relationships: []
       }

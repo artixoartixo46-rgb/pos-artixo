@@ -12,12 +12,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
+import { useRole } from "@/contexts/RoleContext";
 
 export default function TopBar() {
   const navigate = useNavigate();
+  const { isOwner, logout } = useRole();
 
   const { data: lowStockItems } = useQuery({
     queryKey: ["topbar-low-stock"],
@@ -201,6 +203,21 @@ export default function TopBar() {
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Role badge + lock button - lets whoever's on the till right now switch to the other
+            role (or hand off to the next shift) without needing a full page reload. */}
+        <button
+          onClick={logout}
+          title="Switch user / lock"
+          className="hidden sm:flex items-center gap-1.5 px-3 h-9 rounded-full bg-white/15 hover:bg-white/25 transition-colors text-sm font-medium"
+        >
+          {isOwner ? <ShieldCheck className="h-3.5 w-3.5" /> : <ShoppingCart className="h-3.5 w-3.5" />}
+          {isOwner ? "Owner" : "Cashier"}
+          <Lock className="h-3 w-3 opacity-70" />
+        </button>
+        <button onClick={logout} title="Switch user / lock" className="sm:hidden">
+          <Lock className="h-4 w-4" />
+        </button>
 
         <Avatar className="h-8 w-8 ml-1 border-2 border-white/40">
           <AvatarFallback className="bg-white/20 text-white text-xs font-bold">{initials}</AvatarFallback>

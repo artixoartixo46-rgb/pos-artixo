@@ -1,6 +1,7 @@
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Settings, Users, FolderOpen, TruckIcon, Archive, UserCheck, QrCode, History, ClipboardList, ClipboardCheck, Undo2, Sparkles } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { NavLink } from "react-router-dom";
+import { useRole } from "@/contexts/RoleContext";
 import {
   Sidebar,
   SidebarContent,
@@ -13,27 +14,33 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+// ownerOnly matches the OwnerRoute wrapping in App.tsx - kept in sync manually since routes and
+// nav items live in different files. A cashier hiding a link here still can't reach the page
+// directly (OwnerRoute blocks it), so being out of sync just means a confusing extra click, not
+// a security hole.
 const items = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "POS Terminal", url: "/pos", icon: ShoppingCart },
-  { title: "Items", url: "/items", icon: Package },
-  { title: "Product Category", url: "/product-category", icon: FolderOpen },
-  { title: "Vendors", url: "/vendors", icon: Users },
-  { title: "Order Management", url: "/order-management", icon: ClipboardList },
-  { title: "Credit Customers", url: "/credit-customers", icon: UserCheck },
-  { title: "Purchase History", url: "/credit-purchase-history", icon: History },
-  { title: "Product Receiving", url: "/product-receiving", icon: TruckIcon },
-  { title: "Product Inventory", url: "/product-inventory", icon: Archive },
-  { title: "Stock Take", url: "/stock-take", icon: ClipboardCheck },
-  { title: "Returns & Refunds", url: "/returns", icon: Undo2 },
-  { title: "QR Code Print", url: "/barcode-print", icon: QrCode },
-  { title: "Reports", url: "/reports", icon: BarChart3 },
-  { title: "Demand Forecast", url: "/demand-forecast", icon: Sparkles },
-  { title: "Settings", url: "/settings", icon: Settings },
+  { title: "Dashboard", url: "/", icon: LayoutDashboard, ownerOnly: false },
+  { title: "POS Terminal", url: "/pos", icon: ShoppingCart, ownerOnly: false },
+  { title: "Items", url: "/items", icon: Package, ownerOnly: true },
+  { title: "Product Category", url: "/product-category", icon: FolderOpen, ownerOnly: true },
+  { title: "Vendors", url: "/vendors", icon: Users, ownerOnly: true },
+  { title: "Order Management", url: "/order-management", icon: ClipboardList, ownerOnly: true },
+  { title: "Credit Customers", url: "/credit-customers", icon: UserCheck, ownerOnly: false },
+  { title: "Purchase History", url: "/credit-purchase-history", icon: History, ownerOnly: true },
+  { title: "Product Receiving", url: "/product-receiving", icon: TruckIcon, ownerOnly: true },
+  { title: "Product Inventory", url: "/product-inventory", icon: Archive, ownerOnly: true },
+  { title: "Stock Take", url: "/stock-take", icon: ClipboardCheck, ownerOnly: true },
+  { title: "Returns & Refunds", url: "/returns", icon: Undo2, ownerOnly: false },
+  { title: "QR Code Print", url: "/barcode-print", icon: QrCode, ownerOnly: true },
+  { title: "Reports", url: "/reports", icon: BarChart3, ownerOnly: true },
+  { title: "Demand Forecast", url: "/demand-forecast", icon: Sparkles, ownerOnly: true },
+  { title: "Settings", url: "/settings", icon: Settings, ownerOnly: true },
 ];
 
 export function AppSidebar() {
   const { open } = useSidebar();
+  const { isOwner } = useRole();
+  const visibleItems = items.filter((item) => isOwner || !item.ownerOnly);
 
   return (
     <Sidebar className="glass border-r border-border/20">
@@ -68,7 +75,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {items.map((item, index) => (
+              {visibleItems.map((item, index) => (
                 <SidebarMenuItem
                   key={item.title}
                   className="animate-in fade-in slide-in-from-left-4 duration-500 [animation-fill-mode:backwards]"
