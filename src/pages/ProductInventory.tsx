@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Search, Package, PackagePlus, PackageMinus, Building2 } from "lucide-react";
+import { Search, Package, PackagePlus, PackageMinus, Building2, CalendarClock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { Badge } from "@/components/ui/badge";
 
 type MovementPeriod = "today" | "week" | "month";
 
@@ -25,6 +26,18 @@ function getMovementPeriodStart(period: MovementPeriod): string {
     start.setDate(start.getDate() - 30);
   }
   return start.toISOString();
+}
+
+function expiryUrgency(expiryDate: string): { label: string; variant: "destructive" | "secondary" | "outline" } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiryDate);
+  exp.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((exp.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays < 0) return { label: `Expired ${-diffDays}d ago`, variant: "destructive" };
+  if (diffDays === 0) return { label: "Expires today", variant: "destructive" };
+  if (diffDays <= 7) return { label: `Expires in ${diffDays}d`, variant: "destructive" };
+  return { label: `Expires in ${diffDays}d`, variant: "secondary" };
 }
 
 export default function ProductInventory() {
@@ -79,6 +92,25 @@ export default function ProductInventory() {
         .in("sale_id", saleIds);
       if (error) throw error;
       return data || [];
+    },
+  });
+
+  // ---- Expiring batches - repacked items (e.g. grains repacked into gram/kg packets) that
+  // were given an expiry date when their labels were printed in QR Code Print. ----
+  const { data: expiringBatches } = useQuery({
+    queryKey: ["inventory-expiring-batches"],
+    queryFn: async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() + 30);
+      const { data, error } = await supabase
+        .from("product_batches")
+        .select("id, batch_number, quantity_packed, packed_date, expiry_date, products(name, unit_label)")
+        .not("expiry_date", "is", null)
+        .lte("expiry_date", cutoff.toISOString().slice(0, 10))
+        .order("expiry_date", { ascending: true })
+        .limit(30);
+      if (error) throw error;
+      return (data || []) as any[];
     },
   });
 
@@ -192,6 +224,45 @@ export default function ProductInventory() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Expiring batches - only shows up once you've printed a repack label with an expiry
+          date set (QR Code Print page). Nothing here doesn't mean nothing's expiring - it means
+          no repacked item has had its expiry recorded yet. */}
+      {expiringBatches && expiringBatches.length > 0 && (
+        <Card className="glass-card border-border/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-destructive" />
+              Expiring Soon
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 max-h-[320px] overflow-y-auto scroll-glass pr-1">
+              {expiringBatches.map((b) => {
+                const urgency = expiryUrgency(b.expiry_date);
+                return (
+                  <div
+                    key={b.id}
+                    className="flex items-center justify-between p-3 glass-card border-border/30 rounded-lg gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{b.products?.name || "Unknown product"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Batch {b.batch_number} · {b.quantity_packed} {b.products?.unit_label || "packs"} · packed{" "}
+                        {new Date(b.packed_date).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Badge variant={urgency.variant} className="shrink-0">{urgency.label}</Badge>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">
+              Set an expiry date when printing a repack label in QR Code Print - it shows up here until it's sold.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="glass-card border-border/50">
         <CardHeader>

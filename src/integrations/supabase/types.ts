@@ -370,6 +370,44 @@ export type Database = {
         }
         Relationships: []
       }
+      product_batches: {
+        Row: {
+          id: string
+          product_id: string | null
+          batch_number: string
+          quantity_packed: number
+          packed_date: string
+          expiry_date: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id?: string | null
+          batch_number: string
+          quantity_packed?: number
+          packed_date?: string
+          expiry_date?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string | null
+          batch_number?: string
+          quantity_packed?: number
+          packed_date?: string
+          expiry_date?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_batches_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_change_alerts: {
         Row: {
           id: string

@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair } from "lucide-react";
+import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair, CalendarClock, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
 import {
@@ -42,11 +42,16 @@ type PrintQueueItem = {
   price: number;
   quantity: number;
   qrDataUrl: string;
+  // Only set for repacked/batched items (e.g. grains repacked from a bulk sack into gram/kg
+  // packets) - left undefined for ordinary stock, which prints exactly as before.
+  packedDate?: string;
+  expiryDate?: string;
 };
 
 export default function BarcodePrint() {
   const [searchQuery, setSearchQuery] = useState("");
   const [printQueue, setPrintQueue] = useState<PrintQueueItem[]>([]);
+  const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
   const [addingId, setAddingId] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState(getFavoriteTemplateId());
   const [sampleQrUrl, setSampleQrUrl] = useState("");
@@ -207,6 +212,43 @@ export default function BarcodePrint() {
 
   const removeFromQueue = (id: string) => {
     setPrintQueue(printQueue.filter((item) => item.id !== id));
+    setExpandedBatchIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleBatchFields = (id: string) => {
+    setExpandedBatchIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const updateBatchField = (id: string, field: "packedDate" | "expiryDate", value: string) => {
+    setPrintQueue((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
+  };
+
+  // One product_batches row per queued item that has an expiry set - this is what lets the
+  // "Expiring Soon" view (Product Inventory) and TopBar alert know about it later. Items with no
+  // expiry set (ordinary, non-repacked stock) create no batch row and print exactly as before.
+  const createBatchRecords = async (items: PrintQueueItem[]) => {
+    const withExpiry = items.filter((item) => item.expiryDate);
+    if (withExpiry.length === 0) return;
+    const rows = withExpiry.map((item) => ({
+      product_id: item.id,
+      batch_number: `B${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      quantity_packed: item.quantity,
+      packed_date: item.packedDate || new Date().toISOString().slice(0, 10),
+      expiry_date: item.expiryDate,
+    }));
+    const { error } = await supabase.from("product_batches").insert(rows);
+    if (error) {
+      toast.error("Labels printed, but couldn't save batch/expiry records: " + error.message);
+    }
   };
 
   const totalLabels = printQueue.reduce((sum, item) => sum + item.quantity, 0);
@@ -231,6 +273,7 @@ export default function BarcodePrint() {
         price: item.price,
         qrCodeNumber: item.qrCodeNumber,
         qrDataUrl: item.qrDataUrl,
+        expiryDate: item.expiryDate,
       };
       return `<div class="qr-label-box tpl-${template.id}">${template.renderLabel(templateItem, fitName)}</div>`;
     }).join("");
@@ -341,8 +384,10 @@ export default function BarcodePrint() {
             price: item.price,
             qrCodeNumber: item.qrCodeNumber,
             quantity: item.quantity,
+            expiryDate: item.expiryDate,
           }))
         );
+        await createBatchRecords(printQueue);
         toast.success(`Printing ${totalLabels} labels directly to your connected thermal printer`);
         return;
       } catch (err: any) {
@@ -355,6 +400,7 @@ export default function BarcodePrint() {
     const { printContent, labelCount } = buildPrintDocument(printQueue, template);
 
     if (openPrintWindow(printContent)) {
+      await createBatchRecords(printQueue);
       toast.success(`Printing ${totalLabels} labels using "${template.name}" template on ${LABEL_W}×${LABEL_H}mm thermal roll (${labelCount} stickers, double-sided)`);
     }
   };
@@ -657,27 +703,75 @@ export default function BarcodePrint() {
                 <p className="text-muted-foreground text-sm">Click a product on the left to add it here</p>
               </div>
             ) : (
-              printQueue.map((item) => (
-                <div key={item.id} className="flex items-center gap-3 p-3 glass-card border-border/30 rounded-xl">
-                  <img src={item.qrDataUrl} alt={`QR for ${item.name}`} className="h-10 w-10 rounded-md border border-border/40 bg-white p-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">#{item.qrCodeNumber} · Rs. {item.price.toFixed(2)}</p>
+              printQueue.map((item) => {
+                const isExpanded = expandedBatchIds.has(item.id);
+                return (
+                <div key={item.id} className="p-3 glass-card border-border/30 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <img src={item.qrDataUrl} alt={`QR for ${item.name}`} className="h-10 w-10 rounded-md border border-border/40 bg-white p-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{item.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        #{item.qrCodeNumber} · Rs. {item.price.toFixed(2)}
+                        {item.expiryDate && (
+                          <span className="text-primary"> · Exp {new Date(item.expiryDate).toLocaleDateString()}</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, -1)}>
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <span className="w-7 text-center text-sm font-semibold">{item.quantity}</span>
+                      <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, 1)}>
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                      <Button size="icon" variant="destructive" className="h-7 w-7 ml-1" onClick={() => removeFromQueue(item.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, -1)}>
-                      <Minus className="h-3 w-3" />
-                    </Button>
-                    <span className="w-7 text-center text-sm font-semibold">{item.quantity}</span>
-                    <Button size="icon" variant="outline" className="h-7 w-7 glass" onClick={() => updateQuantity(item.id, 1)}>
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                    <Button size="icon" variant="destructive" className="h-7 w-7 ml-1" onClick={() => removeFromQueue(item.id)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
+
+                  <button
+                    onClick={() => toggleBatchFields(item.id)}
+                    className="mt-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                  >
+                    <CalendarClock className="h-3 w-3" />
+                    Repack batch / expiry date
+                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">Packed date</label>
+                        <Input
+                          type="date"
+                          value={item.packedDate || new Date().toISOString().slice(0, 10)}
+                          onChange={(e) => updateBatchField(item.id, "packedDate", e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-muted-foreground">Expiry date</label>
+                        <Input
+                          type="date"
+                          value={item.expiryDate || ""}
+                          onChange={(e) => updateBatchField(item.id, "expiryDate", e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      {(selectedTemplateId === "minimal" || selectedTemplateId === "large-qr") && (
+                        <p className="col-span-2 text-[10px] text-amber-600 dark:text-amber-400">
+                          The "{getTemplateById(selectedTemplateId).name}" template has no room to show the expiry
+                          date on the sticker - pick another template above if you need it visible.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -700,6 +794,7 @@ export default function BarcodePrint() {
                       price: item.price,
                       qrCodeNumber: item.qrCodeNumber,
                       qrDataUrl: item.qrDataUrl,
+                      expiryDate: item.expiryDate,
                     };
                     return (
                       <div

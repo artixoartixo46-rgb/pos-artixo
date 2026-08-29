@@ -12,7 +12,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck, ShieldAlert, CalendarClock } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck, ShieldAlert, CalendarClock, Hourglass } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
 import { useRole } from "@/contexts/RoleContext";
@@ -127,6 +127,28 @@ export default function TopBar() {
     refetchInterval: 60000,
   });
 
+  // Visible to everyone (not owner-only) - a cashier is the one actually selling stock, so
+  // they're the one who benefits most from knowing what needs to move first. Only surfaces
+  // batches within 7 days of expiry (or already expired) - the full 30-day view lives on
+  // Product Inventory for browsing, this is just the "act now" subset.
+  const { data: expiringBatches } = useQuery({
+    queryKey: ["topbar-expiring-batches"],
+    queryFn: async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() + 7);
+      const { data, error } = await supabase
+        .from("product_batches")
+        .select("id, expiry_date, products(name)")
+        .not("expiry_date", "is", null)
+        .lte("expiry_date", cutoff.toISOString().slice(0, 10))
+        .order("expiry_date", { ascending: true })
+        .limit(10);
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+    refetchInterval: 60000,
+  });
+
   const { data: shopSettings } = useQuery({
     queryKey: ["topbar-settings"],
     queryFn: async () => {
@@ -143,7 +165,8 @@ export default function TopBar() {
     (heldBillsCount || 0) +
     (creditOutstanding?.count ? 1 : 0) + // one aggregated line, not per-customer
     (priceAlerts?.length || 0) +
-    (overdueVendorBills?.length || 0);
+    (overdueVendorBills?.length || 0) +
+    (expiringBatches?.length || 0);
   const initials = (shopSettings?.business_name || "Artixo").trim().slice(0, 2).toUpperCase();
 
   return (
@@ -276,6 +299,19 @@ export default function TopBar() {
                   <CalendarClock className="h-4 w-4 mr-2 text-destructive shrink-0" />
                   <span className="truncate">
                     {bill.vendors?.name || "Vendor"} - Rs. {Number(bill.total_amount || 0).toFixed(0)} overdue {daysOverdue}d
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
+            {(expiringBatches || []).map((batch) => {
+              const daysLeft = Math.round(
+                (new Date(batch.expiry_date).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / (24 * 60 * 60 * 1000)
+              );
+              return (
+                <DropdownMenuItem key={batch.id} onClick={() => navigate("/product-inventory")} className="cursor-pointer">
+                  <Hourglass className="h-4 w-4 mr-2 text-destructive shrink-0" />
+                  <span className="truncate">
+                    {batch.products?.name || "Product"} - {daysLeft < 0 ? `expired ${-daysLeft}d ago` : daysLeft === 0 ? "expires today" : `expires in ${daysLeft}d`}
                   </span>
                 </DropdownMenuItem>
               );

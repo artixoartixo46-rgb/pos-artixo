@@ -523,6 +523,9 @@ export interface DirectPrintLabel {
   price: number;
   qrCodeNumber: string;
   quantity: number;
+  /** ISO date string - only set for repacked/batched items (e.g. grains repacked from a bulk
+   *  sack into gram/kg packets). Printed as its own small line when present. */
+  expiryDate?: string;
 }
 
 // Direct ESC/POS printing for QR price labels, reusing the SAME WebUSB connection/native QR
@@ -573,6 +576,15 @@ function buildLabelBytes(labels: DirectPrintLabel[]): number[] {
       doubleHeight(false);
       bold(false);
       push(`#${label.qrCodeNumber}` + "\n");
+      if (label.expiryDate) {
+        const d = new Date(label.expiryDate);
+        if (!Number.isNaN(d.getTime())) {
+          const dd = String(d.getDate()).padStart(2, "0");
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const yy = String(d.getFullYear()).slice(-2);
+          push(`Exp: ${dd}/${mm}/${yy}` + "\n");
+        }
+      }
       feed(1);
       cut();
     }

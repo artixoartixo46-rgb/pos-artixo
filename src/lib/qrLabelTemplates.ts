@@ -13,6 +13,22 @@ export interface QRTemplateItem {
   price: number;
   qrCodeNumber: string;
   qrDataUrl: string;
+  /** Set only for repacked/batched items (e.g. grains repacked from a bulk sack into gram/kg
+   *  packets) - ISO date string. Appended onto whichever text line the template already has
+   *  room for; templates with no spare text line (Minimal, Large QR) don't show it at all. */
+  expiryDate?: string;
+}
+
+// Short "Exp DD/MM/YY" form - the label is only 50x25mm total, so there's no room for a full
+// date. Returns "" when there's no expiry to show, so callers can just concatenate it in.
+function formatExpiryTag(expiryDate?: string): string {
+  if (!expiryDate) return "";
+  const d = new Date(expiryDate);
+  if (Number.isNaN(d.getTime())) return "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return ` · Exp ${dd}/${mm}/${yy}`;
 }
 
 export interface QRLabelTemplate {
@@ -119,7 +135,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       <div class="info">
         <div class="name">${fitName(item.name, 16)}</div>
         <div class="price">Rs.${item.price.toFixed(2)}</div>
-        <div class="code">#${item.qrCodeNumber}</div>
+        <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       </div>
     `,
   },
@@ -174,7 +190,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       <div class="name">${fitName(item.name, 18)}</div>
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="price">Rs.${item.price.toFixed(2)}</div>
-      <div class="code">#${item.qrCodeNumber}</div>
+      <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
     `,
   },
   {
@@ -197,7 +213,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       </div>
       <div class="right">
         <div class="price">Rs.${item.price.toFixed(2)}</div>
-        <div class="code">#${item.qrCodeNumber}</div>
+        <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       </div>
     `,
   },
@@ -218,7 +234,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       <div class="info">
         <div class="name">${fitName(item.name, 16)}</div>
         <div class="price">Rs.${item.price.toFixed(2)}</div>
-        <div class="code">#${item.qrCodeNumber}</div>
+        <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       </div>
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
     `,
@@ -237,7 +253,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
     renderLabel: (item, fitName) => `
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="line">${fitName(item.name, 14)} · Rs.${item.price.toFixed(2)}</div>
-      <div class="code">#${item.qrCodeNumber}</div>
+      <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
     `,
   },
   {
@@ -258,7 +274,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="bottom-row">
         <div class="price">Rs.${item.price.toFixed(2)}</div>
-        <div class="code">#${item.qrCodeNumber}</div>
+        <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       </div>
     `,
   },
@@ -277,7 +293,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
     renderLabel: (item, fitName) => `
       <div class="price">Rs.${item.price.toFixed(2)}</div>
       <div class="name">${fitName(item.name, 16)}</div>
-      <div class="code">#${item.qrCodeNumber}</div>
+      <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
     `,
   },
