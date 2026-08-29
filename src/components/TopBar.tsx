@@ -12,7 +12,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Plus, Bell, Package, Users, UserCheck, ShoppingCart, AlertTriangle, RefreshCw, Phone, TruckIcon, PauseCircle, Wallet, Lock, ShieldCheck, ShieldAlert, CalendarClock } from "lucide-react";
 import artixoLogo from "@/assets/artixo-logo.png";
 import { getPendingSales } from "@/lib/offlineDb";
 import { useRole } from "@/contexts/RoleContext";
@@ -106,6 +106,27 @@ export default function TopBar() {
     refetchInterval: 60000,
   });
 
+  // Owner-only: unpaid vendor bills that are overdue (due_date in the past) - the same "Mark
+  // Paid" / due-date fields live on the Vendors page, this is just the heads-up that something
+  // needs attention there. Cashiers don't touch vendor payments, so this stays owner-only.
+  const { data: overdueVendorBills } = useQuery({
+    queryKey: ["topbar-overdue-vendor-bills"],
+    queryFn: async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data, error } = await supabase
+        .from("vendor_bills")
+        .select("id, invoice_number, total_amount, due_date, vendors(name)")
+        .eq("paid", false)
+        .lt("due_date", today)
+        .order("due_date", { ascending: true })
+        .limit(10);
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+    enabled: isOwner,
+    refetchInterval: 60000,
+  });
+
   const { data: shopSettings } = useQuery({
     queryKey: ["topbar-settings"],
     queryFn: async () => {
@@ -121,7 +142,8 @@ export default function TopBar() {
     (pendingCheckins?.length || 0) +
     (heldBillsCount || 0) +
     (creditOutstanding?.count ? 1 : 0) + // one aggregated line, not per-customer
-    (priceAlerts?.length || 0);
+    (priceAlerts?.length || 0) +
+    (overdueVendorBills?.length || 0);
   const initials = (shopSettings?.business_name || "Artixo").trim().slice(0, 2).toUpperCase();
 
   return (
@@ -245,6 +267,19 @@ export default function TopBar() {
                 </span>
               </DropdownMenuItem>
             )}
+            {(overdueVendorBills || []).map((bill) => {
+              const daysOverdue = Math.round(
+                (new Date().setHours(0, 0, 0, 0) - new Date(bill.due_date).setHours(0, 0, 0, 0)) / (24 * 60 * 60 * 1000)
+              );
+              return (
+                <DropdownMenuItem key={bill.id} onClick={() => navigate("/vendors")} className="cursor-pointer">
+                  <CalendarClock className="h-4 w-4 mr-2 text-destructive shrink-0" />
+                  <span className="truncate">
+                    {bill.vendors?.name || "Vendor"} - Rs. {Number(bill.total_amount || 0).toFixed(0)} overdue {daysOverdue}d
+                  </span>
+                </DropdownMenuItem>
+              );
+            })}
             {(lowStockItems || []).slice(0, 6).map((item) => (
               <DropdownMenuItem key={item.id} onClick={() => navigate("/product-inventory")} className="cursor-pointer">
                 <AlertTriangle className="h-4 w-4 mr-2 text-destructive shrink-0" />

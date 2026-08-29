@@ -1036,10 +1036,13 @@ export type Database = {
         Row: {
           bill_image_url: string | null
           created_at: string
+          due_date: string | null
           id: string
           invoice_date: string
           invoice_number: string
           items: Json
+          paid: boolean
+          paid_at: string | null
           status: string
           total_amount: number
           vendor_id: string | null
@@ -1047,10 +1050,13 @@ export type Database = {
         Insert: {
           bill_image_url?: string | null
           created_at?: string
+          due_date?: string | null
           id?: string
           invoice_date?: string
           invoice_number: string
           items?: Json
+          paid?: boolean
+          paid_at?: string | null
           status?: string
           total_amount?: number
           vendor_id?: string | null
@@ -1058,10 +1064,13 @@ export type Database = {
         Update: {
           bill_image_url?: string | null
           created_at?: string
+          due_date?: string | null
           id?: string
           invoice_date?: string
           invoice_number?: string
           items?: Json
+          paid?: boolean
+          paid_at?: string | null
           status?: string
           total_amount?: number
           vendor_id?: string | null
@@ -1134,6 +1143,7 @@ export type Database = {
         Row: {
           address: string | null
           created_at: string
+          credit_period_days: number
           current_balance: number | null
           email: string | null
           gst_vat_number: string | null
@@ -1146,6 +1156,7 @@ export type Database = {
         Insert: {
           address?: string | null
           created_at?: string
+          credit_period_days?: number
           current_balance?: number | null
           email?: string | null
           gst_vat_number?: string | null
@@ -1158,6 +1169,7 @@ export type Database = {
         Update: {
           address?: string | null
           created_at?: string
+          credit_period_days?: number
           current_balance?: number | null
           email?: string | null
           gst_vat_number?: string | null

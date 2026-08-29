@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Users, Camera, FileText, BookOpen, Upload, Loader2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Camera, FileText, BookOpen, Upload, Loader2, X, Bell, CheckCircle2, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import { BillPreviewModal, ExtractedBillData } from "@/components/BillPreviewModal";
 
@@ -23,6 +23,7 @@ type Vendor = {
   gst_vat_number: string | null;
   opening_balance: number | null;
   current_balance: number | null;
+  credit_period_days: number | null;
 };
 
 type VendorLedgerEntry = {
@@ -37,13 +38,43 @@ type VendorLedgerEntry = {
 
 type VendorBill = {
   id: string;
+  vendor_id: string | null;
   invoice_number: string;
   invoice_date: string;
+  due_date: string | null;
+  paid: boolean;
+  paid_at: string | null;
   total_amount: number;
   items: any[];
   status: string;
   created_at: string;
 };
+
+type PaymentReminderBill = {
+  id: string;
+  vendor_id: string | null;
+  invoice_number: string;
+  invoice_date: string;
+  due_date: string | null;
+  total_amount: number;
+  paid: boolean;
+  vendors: { name: string } | null;
+};
+
+// Overdue first, then soonest due, unpaid bills with no due date set at all go last (nothing
+// to sort them against) so they don't drown out bills that actually need attention today.
+function dueUrgency(dueDate: string | null): { label: string; variant: "destructive" | "secondary" | "outline"; sortKey: number } {
+  if (!dueDate) return { label: "No due date set", variant: "outline", sortKey: Infinity };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays < 0) return { label: `${-diffDays}d overdue`, variant: "destructive", sortKey: diffDays };
+  if (diffDays === 0) return { label: "Due today", variant: "destructive", sortKey: 0 };
+  if (diffDays <= 3) return { label: `Due in ${diffDays}d`, variant: "secondary", sortKey: diffDays };
+  return { label: `Due ${new Date(dueDate).toLocaleDateString()}`, variant: "outline", sortKey: diffDays };
+}
 
 export default function Vendors() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -55,6 +86,7 @@ export default function Vendors() {
     address: "",
     gst_vat_number: "",
     opening_balance: "0",
+    credit_period_days: "30",
   });
   
   // OCR Scanner state
@@ -116,6 +148,83 @@ export default function Vendors() {
     enabled: !!selectedVendor,
   });
 
+  // ---- Payment reminders: every unpaid bill across all vendors, most urgent first ----
+  const { data: paymentReminders } = useQuery({
+    queryKey: ["vendor-payment-reminders"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("vendor_bills")
+        .select("id, vendor_id, invoice_number, invoice_date, due_date, total_amount, paid, vendors(name)")
+        .eq("paid", false);
+      if (error) throw error;
+      return (data || []) as unknown as PaymentReminderBill[];
+    },
+    refetchInterval: 60000,
+  });
+
+  const sortedReminders = [...(paymentReminders || [])].sort(
+    (a, b) => dueUrgency(a.due_date).sortKey - dueUrgency(b.due_date).sortKey
+  );
+
+  const updateDueDateMutation = useMutation({
+    mutationFn: async ({ id, due_date }: { id: string; due_date: string }) => {
+      const { error } = await supabase.from("vendor_bills").update({ due_date }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-payment-reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-bills"] });
+    },
+    onError: () => toast.error("Couldn't update due date"),
+  });
+
+  const markBillPaidMutation = useMutation({
+    mutationFn: async (bill: PaymentReminderBill | VendorBill) => {
+      if (!bill.vendor_id) throw new Error("Bill has no vendor");
+      const { data: lastLedgerEntry } = await supabase
+        .from("vendor_ledger")
+        .select("balance")
+        .eq("vendor_id", bill.vendor_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const previousBalance = lastLedgerEntry?.balance || 0;
+      const newBalance = previousBalance - Number(bill.total_amount || 0);
+
+      const { error: billError } = await supabase
+        .from("vendor_bills")
+        .update({ paid: true, paid_at: new Date().toISOString() })
+        .eq("id", bill.id);
+      if (billError) throw billError;
+
+      const { error: ledgerError } = await supabase.from("vendor_ledger").insert({
+        vendor_id: bill.vendor_id,
+        bill_id: bill.id,
+        description: "Payment recorded",
+        invoice_number: bill.invoice_number,
+        debit: 0,
+        credit: bill.total_amount,
+        balance: newBalance,
+        transaction_date: new Date().toISOString(),
+      });
+      if (ledgerError) throw ledgerError;
+
+      const { error: vendorError } = await supabase
+        .from("vendors")
+        .update({ current_balance: newBalance })
+        .eq("id", bill.vendor_id);
+      if (vendorError) throw vendorError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vendor-payment-reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-bills"] });
+      queryClient.invalidateQueries({ queryKey: ["vendor-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["vendors"] });
+      toast.success("Payment recorded");
+    },
+    onError: (err: any) => toast.error(err?.message || "Couldn't record payment"),
+  });
+
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       const { error } = await supabase.from("vendors").insert([{
@@ -126,6 +235,7 @@ export default function Vendors() {
         gst_vat_number: data.gst_vat_number || null,
         opening_balance: parseFloat(data.opening_balance) || 0,
         current_balance: parseFloat(data.opening_balance) || 0,
+        credit_period_days: parseInt(data.credit_period_days) || 30,
       }]);
       if (error) throw error;
     },
@@ -147,6 +257,7 @@ export default function Vendors() {
         address: data.address || null,
         gst_vat_number: data.gst_vat_number || null,
         opening_balance: parseFloat(data.opening_balance) || 0,
+        credit_period_days: parseInt(data.credit_period_days) || 30,
       }).eq("id", id);
       if (error) throw error;
     },
@@ -173,7 +284,7 @@ export default function Vendors() {
   });
 
   const resetForm = () => {
-    setFormData({ name: "", phone: "", email: "", address: "", gst_vat_number: "", opening_balance: "0" });
+    setFormData({ name: "", phone: "", email: "", address: "", gst_vat_number: "", opening_balance: "0", credit_period_days: "30" });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -198,6 +309,7 @@ export default function Vendors() {
       address: vendor.address || "",
       gst_vat_number: vendor.gst_vat_number || "",
       opening_balance: String(vendor.opening_balance || 0),
+      credit_period_days: String(vendor.credit_period_days || 30),
     });
     setIsDialogOpen(true);
   };
@@ -503,6 +615,18 @@ export default function Vendors() {
                       placeholder="0.00"
                     />
                   </div>
+                  <div>
+                    <Label htmlFor="credit_period_days">Credit Period (days)</Label>
+                    <Input
+                      id="credit_period_days"
+                      type="number"
+                      min="0"
+                      value={formData.credit_period_days}
+                      onChange={(e) => setFormData({ ...formData, credit_period_days: e.target.value })}
+                      placeholder="30"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">Suggested due date for new bills.</p>
+                  </div>
                   <div className="col-span-2">
                     <Label htmlFor="address">Address</Label>
                     <Textarea
@@ -536,6 +660,62 @@ export default function Vendors() {
         onSave={handleSaveBill}
         isSaving={isSaving}
       />
+
+      {/* Payment Reminders - every unpaid bill across all vendors, most urgent first */}
+      <Card className="glass-card glass-hover border-border/50 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Bell className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold">Payment Reminders</h2>
+        </div>
+        {sortedReminders.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">No unpaid vendor bills - all caught up.</p>
+        ) : (
+          <div className="space-y-2">
+            {sortedReminders.map((bill) => {
+              const urgency = dueUrgency(bill.due_date);
+              return (
+                <div
+                  key={bill.id}
+                  className="flex flex-wrap items-center justify-between gap-3 p-3 glass-card border-border/30 rounded-lg"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{bill.vendors?.name || "Unknown vendor"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Invoice #{bill.invoice_number} · Rs. {Number(bill.total_amount || 0).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        type="date"
+                        value={bill.due_date ? bill.due_date.slice(0, 10) : ""}
+                        onChange={(e) => e.target.value && updateDueDateMutation.mutate({ id: bill.id, due_date: e.target.value })}
+                        className="h-8 w-[150px] text-xs"
+                      />
+                    </div>
+                    <Badge variant={urgency.variant}>{urgency.label}</Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => markBillPaidMutation.mutate(bill)}
+                      disabled={markBillPaidMutation.isPending}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Mark Paid
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground mt-3">
+          Set a due date on any bill above (defaults to none until you set one). "Mark Paid" records the
+          payment in that vendor's ledger and reduces their balance - it doesn't touch your own cash/bank records.
+        </p>
+      </Card>
 
       {/* Vendors Table */}
       <Card className="glass-card glass-hover border-border/50 p-6">
@@ -640,6 +820,59 @@ export default function Vendors() {
                   <p className="text-lg font-semibold">{vendorBills?.length || 0}</p>
                 </div>
               </div>
+
+              {/* Bills - due date + paid status per bill, same actions as the Payment Reminders card */}
+              {vendorBills && vendorBills.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">Bills</p>
+                  <ScrollArea className="h-[180px]">
+                    <div className="space-y-2 pr-3">
+                      {vendorBills.map((bill) => {
+                        const urgency = dueUrgency(bill.due_date);
+                        return (
+                          <div
+                            key={bill.id}
+                            className="flex flex-wrap items-center justify-between gap-2 p-2.5 glass-card border-border/30 rounded-lg text-sm"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">
+                                #{bill.invoice_number} · Rs. {Number(bill.total_amount || 0).toFixed(2)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {new Date(bill.invoice_date).toLocaleDateString()}
+                              </p>
+                            </div>
+                            {bill.paid ? (
+                              <Badge variant="outline" className="gap-1">
+                                <CheckCircle2 className="h-3 w-3 text-green-500" /> Paid
+                              </Badge>
+                            ) : (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Input
+                                  type="date"
+                                  value={bill.due_date ? bill.due_date.slice(0, 10) : ""}
+                                  onChange={(e) => e.target.value && updateDueDateMutation.mutate({ id: bill.id, due_date: e.target.value })}
+                                  className="h-7 w-[135px] text-xs"
+                                />
+                                <Badge variant={urgency.variant} className="text-[10px]">{urgency.label}</Badge>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 gap-1 text-xs"
+                                  onClick={() => markBillPaidMutation.mutate(bill)}
+                                  disabled={markBillPaidMutation.isPending}
+                                >
+                                  Mark Paid
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
 
               {/* Ledger Table */}
               <ScrollArea className="h-[400px]">
