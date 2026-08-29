@@ -24,6 +24,8 @@ import {
   Users,
   Target,
   Wallet,
+  DollarSign,
+  Percent,
 } from "lucide-react";
 import { computeReorderSuggestions, groupSuggestionsByVendor, type ReorderTrend } from "@/lib/reorderSuggestions";
 import {
@@ -271,6 +273,50 @@ export default function Reports() {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 8);
   }, [saleItems, categoryMap]);
+
+  // ---- Profit margin by product ----
+  // Uses each product's CURRENT cost as a stand-in for what it actually cost at the time of
+  // that sale - same approximation the Dead Stock report already makes elsewhere in this page.
+  // A truly historical margin would need cost captured per sale_item at checkout time, which
+  // this schema doesn't record.
+  const [marginView, setMarginView] = useState<"top" | "bottom">("top");
+
+  const costMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of products || []) map.set(p.id, Number(p.cost) || 0);
+    return map;
+  }, [products]);
+
+  const profitMargin = useMemo(() => {
+    const buckets: Record<string, { name: string; qty: number; revenue: number; cost: number }> = {};
+    for (const item of saleItems || []) {
+      if (!item.product_id) continue;
+      if (!buckets[item.product_id]) {
+        buckets[item.product_id] = { name: item.product_name, qty: 0, revenue: 0, cost: 0 };
+      }
+      const b = buckets[item.product_id];
+      b.qty += Number(item.quantity || 0);
+      b.revenue += Number(item.total_price || 0);
+      b.cost += Number(item.quantity || 0) * (costMap.get(item.product_id) || 0);
+    }
+    return Object.entries(buckets).map(([id, b]) => {
+      const profit = b.revenue - b.cost;
+      const marginPct = b.revenue > 0 ? (profit / b.revenue) * 100 : 0;
+      return { id, ...b, profit, marginPct };
+    });
+  }, [saleItems, costMap]);
+
+  const totalProfit = useMemo(() => profitMargin.reduce((sum, p) => sum + p.profit, 0), [profitMargin]);
+
+  const marginTableRows = useMemo(() => {
+    const sorted = [...profitMargin];
+    if (marginView === "top") {
+      sorted.sort((a, b) => b.profit - a.profit);
+    } else {
+      sorted.sort((a, b) => a.marginPct - b.marginPct);
+    }
+    return sorted.slice(0, 15);
+  }, [profitMargin, marginView]);
 
   // ---- Top wholesale / B2B buyers ----
   const wholesaleCustomerIds = useMemo(
@@ -672,6 +718,79 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Profit margin by product */}
+      <Card className="glass-card border-border/50">
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
+            <span className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-primary" />
+              Profit Margin by Product
+            </span>
+            <div className="flex gap-1.5">
+              <Button size="sm" variant={marginView === "top" ? "default" : "outline"} onClick={() => setMarginView("top")}>
+                Most Profitable
+              </Button>
+              <Button size="sm" variant={marginView === "bottom" ? "default" : "outline"} onClick={() => setMarginView("bottom")}>
+                Lowest Margin
+              </Button>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {profitMargin.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No sales in this period.</p>
+          ) : (
+            <>
+              <div className="flex items-center justify-between p-3 mb-4 glass-card border-border/30 rounded-xl">
+                <span className="text-sm text-muted-foreground">Total profit ({PERIOD_LABELS[period]})</span>
+                <span className={`font-bold ${totalProfit >= 0 ? "text-primary" : "text-destructive"}`}>
+                  Rs. {totalProfit.toFixed(2)}
+                </span>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Qty Sold</TableHead>
+                    <TableHead className="text-right">Revenue</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
+                    <TableHead className="text-right">Profit</TableHead>
+                    <TableHead className="text-right">Margin</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {marginTableRows.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="text-right">{p.qty}</TableCell>
+                      <TableCell className="text-right">Rs. {p.revenue.toFixed(2)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">Rs. {p.cost.toFixed(2)}</TableCell>
+                      <TableCell className={`text-right font-semibold ${p.profit >= 0 ? "" : "text-destructive"}`}>
+                        Rs. {p.profit.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge
+                          variant={p.marginPct < 0 ? "destructive" : p.marginPct < 15 ? "secondary" : "default"}
+                          className="gap-1"
+                        >
+                          <Percent className="h-3 w-3" />
+                          {p.marginPct.toFixed(0)}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-muted-foreground mt-3">
+                Uses each product's current cost price as a stand-in for cost at the time of sale (this app
+                doesn't record historical cost per sale) - if a product's cost was changed recently, older
+                sales here reflect today's cost, not what it actually cost back then.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Top wholesale / B2B buyers */}
