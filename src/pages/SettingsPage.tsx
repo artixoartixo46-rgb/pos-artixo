@@ -372,12 +372,14 @@ export default function SettingsPage() {
   // (short-lived, 2-hour-expiry QR checkout codes - plumbing, not business data).
   const BACKUP_TABLES = [
     "products", "product_categories", "product_price_tiers", "product_receiving",
+    "product_batches", "price_change_alerts",
     "sales", "sale_items", "returns", "return_items",
     "credit_customers", "credit_payment_history",
     "vendors", "vendor_bills", "vendor_ledger", "vendor_checkins", "vendor_checkin_items",
     "stock_takes", "stock_take_items",
     "cheques", "cheque_print_history",
     "banks", "locations", "settings",
+    "cashiers", "catalog_checkout_sessions", "sync_errors",
   ] as const;
 
   // PostgREST caps a plain .select() at 1000 rows by default and nothing else in this codebase
@@ -446,14 +448,15 @@ export default function SettingsPage() {
   // duplicates. Parent tables are restored before the child tables that reference them, so
   // foreign keys never fail mid-restore. ----
   const RESTORE_ORDER: (typeof BACKUP_TABLES)[number][] = [
-    "settings", "banks", "locations",
-    "product_categories", "products", "product_price_tiers",
+    "settings", "banks", "locations", "cashiers",
+    "product_categories", "products", "product_price_tiers", "product_batches", "price_change_alerts",
     "vendors", "product_receiving", "vendor_checkins", "vendor_checkin_items",
     "vendor_bills", "vendor_ledger",
     "credit_customers", "credit_payment_history",
     "cheques", "cheque_print_history",
     "sales", "sale_items", "returns", "return_items",
     "stock_takes", "stock_take_items",
+    "catalog_checkout_sessions", "sync_errors",
   ];
 
   const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
