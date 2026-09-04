@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2, ShieldCheck, Users, Pencil, Trash2, Plus, Target } from "lucide-react";
+import { Settings, Save, Printer, Usb, CheckCircle2, XCircle, QrCode, Wallet, Database, Download, CloudUpload, Loader2, ShieldCheck, Users, Pencil, Trash2, Plus, Target, Upload, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import QRCodeLib from "qrcode";
@@ -440,6 +440,83 @@ export default function SettingsPage() {
     }
   };
 
+  // ---- Restore from Backup - reads a JSON file produced by "Download Full Backup" (or the
+  // matching Supabase Storage cloud snapshot) and re-inserts every row via upsert-by-id, so
+  // running it twice - or restoring on top of data that's still partly there - never creates
+  // duplicates. Parent tables are restored before the child tables that reference them, so
+  // foreign keys never fail mid-restore. ----
+  const RESTORE_ORDER: (typeof BACKUP_TABLES)[number][] = [
+    "settings", "banks", "locations",
+    "product_categories", "products", "product_price_tiers",
+    "vendors", "product_receiving", "vendor_checkins", "vendor_checkin_items",
+    "vendor_bills", "vendor_ledger",
+    "credit_customers", "credit_payment_history",
+    "cheques", "cheque_print_history",
+    "sales", "sale_items", "returns", "return_items",
+    "stock_takes", "stock_take_items",
+  ];
+
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreParsed, setRestoreParsed] = useState<{ exported_at?: string; tables: Record<string, any[]> } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreLog, setRestoreLog] = useState<{ table: string; status: "pending" | "done" | "error"; count: number; error?: string }[]>([]);
+
+  const handleRestoreFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow picking the same file again later
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== "object" || !parsed.tables || typeof parsed.tables !== "object") {
+        throw new Error("Not a valid Artixo POS backup file");
+      }
+      setRestoreParsed(parsed);
+      setRestoreLog([]);
+      setRestoreDialogOpen(true);
+    } catch (err: any) {
+      toast.error(err?.message || "Couldn't read that backup file");
+    }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!restoreParsed) return;
+    setRestoring(true);
+    const tablesToRestore = RESTORE_ORDER.filter(
+      (t) => Array.isArray(restoreParsed.tables[t]) && restoreParsed.tables[t].length > 0
+    );
+    setRestoreLog(tablesToRestore.map((t) => ({ table: t, status: "pending" as const, count: restoreParsed.tables[t].length })));
+
+    let totalRestored = 0;
+    let stoppedAt = "";
+    for (const table of tablesToRestore) {
+      const rows = restoreParsed.tables[table];
+      try {
+        const CHUNK = 500;
+        for (let i = 0; i < rows.length; i += CHUNK) {
+          const chunk = rows.slice(i, i + CHUNK);
+          const { error } = await supabase.from(table as any).upsert(chunk, { onConflict: "id" });
+          if (error) throw new Error(error.message);
+        }
+        totalRestored += rows.length;
+        setRestoreLog((prev) => prev.map((r) => (r.table === table ? { ...r, status: "done" } : r)));
+      } catch (err: any) {
+        setRestoreLog((prev) => prev.map((r) => (r.table === table ? { ...r, status: "error", error: err?.message } : r)));
+        stoppedAt = table;
+        break;
+      }
+    }
+
+    setRestoring(false);
+    if (stoppedAt) {
+      toast.error(`Restore stopped at "${stoppedAt}" - tables before it restored fine, re-run the same file to retry`);
+    } else {
+      toast.success(`Restore complete — ${totalRestored} rows restored across ${tablesToRestore.length} tables`);
+      queryClient.invalidateQueries();
+      setRestoreDialogOpen(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -826,6 +903,21 @@ export default function SettingsPage() {
             {cloudBackingUp ? <Loader2 className="h-4 w-4 animate-spin" /> : <CloudUpload className="h-4 w-4" />}
             {cloudBackingUp ? "Backing up..." : "Backup to Cloud Now"}
           </Button>
+          <input
+            id="restore-file-input"
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleRestoreFilePicked}
+          />
+          <Button
+            variant="outline"
+            className="glass gap-2"
+            onClick={() => document.getElementById("restore-file-input")?.click()}
+          >
+            <Upload className="h-4 w-4" />
+            Restore from Backup
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
           "Backup to Cloud Now" saves a redundant snapshot to Supabase Storage - separate from the
@@ -837,7 +929,67 @@ export default function SettingsPage() {
             </span>
           )}
         </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          "Restore from Backup" reads a JSON file from "Download Full Backup" (or the cloud snapshot,
+          downloaded from Supabase Storage) and puts that data back — safe to re-run, existing rows are
+          matched by ID and updated, nothing gets duplicated.
+        </p>
       </Card>
+
+      <Dialog open={restoreDialogOpen} onOpenChange={(open) => !restoring && setRestoreDialogOpen(open)}>
+        <DialogContent className="glass-card border-border/50 sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Restore from Backup
+            </DialogTitle>
+          </DialogHeader>
+          {restoreParsed && (
+            <div className="space-y-4">
+              <div className="text-sm bg-destructive/10 border border-destructive/30 rounded-lg p-3 text-destructive">
+                This will overwrite any current row that shares an ID with the backup, and add back
+                anything that was deleted. It will NOT remove rows created after this backup was made.
+                Double-check the date below before continuing.
+              </div>
+              <p className="text-sm">
+                Backup from:{" "}
+                <span className="font-medium">
+                  {restoreParsed.exported_at ? format(new Date(restoreParsed.exported_at), "MMM dd, yyyy HH:mm") : "unknown date"}
+                </span>
+              </p>
+              <div className="max-h-64 overflow-y-auto scroll-glass space-y-1 pr-1">
+                {RESTORE_ORDER.filter((t) => Array.isArray(restoreParsed.tables[t]) && restoreParsed.tables[t].length > 0).map((t) => {
+                  const logEntry = restoreLog.find((r) => r.table === t);
+                  return (
+                    <div key={t} className="flex items-center justify-between text-sm p-2 glass-card border-border/30 rounded">
+                      <span>{t}</span>
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        {restoreParsed.tables[t].length} rows
+                        {logEntry?.status === "done" && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                        {logEntry?.status === "error" && <XCircle className="h-4 w-4 text-destructive" />}
+                        {restoring && logEntry?.status === "pending" && <Loader2 className="h-4 w-4 animate-spin" />}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {restoreLog.some((r) => r.status === "error") && (
+                <p className="text-xs text-destructive">
+                  {restoreLog.find((r) => r.status === "error")?.error}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setRestoreDialogOpen(false)} disabled={restoring}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" onClick={handleConfirmRestore} disabled={restoring}>
+                  {restoring ? "Restoring..." : "Restore Now"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={cashierDialogOpen} onOpenChange={setCashierDialogOpen}>
         <DialogContent className="glass-card border-border/50 sm:max-w-md">
