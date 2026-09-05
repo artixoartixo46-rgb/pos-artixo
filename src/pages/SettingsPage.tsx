@@ -630,7 +630,7 @@ export default function SettingsPage() {
                   placeholder="0000"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Everything except Items, Reports, Product Receiving and Settings - those stay Owner-only.
+                  Everything except Reports, Product Receiving and Settings - those stay Owner-only.
                 </p>
               </div>
             </div>
