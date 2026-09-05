@@ -14,7 +14,13 @@ export default defineConfig(({ mode }) => ({
     react(),
     mode === "development" && componentTagger(),
     VitePWA({
-      registerType: "autoUpdate",
+      // "prompt" (not "autoUpdate") is required here - main.tsx's onNeedRefresh shows a toast
+      // and waits for the cashier to click "Refresh now" instead of reloading automatically.
+      // With "autoUpdate", vite-plugin-pwa's own registration reloads the page as soon as a new
+      // deploy is detected (checked every 60s in main.tsx) - onNeedRefresh never even fires. That
+      // silently drops whatever's in the cart if it fires mid-sale, which is exactly what the
+      // comment in main.tsx says this app is trying to avoid.
+      registerType: "prompt",
       // POS Terminal billing must keep working with no network - precache the app shell
       // so the page itself loads offline, and cache navigations to the SPA entry point.
       workbox: {
