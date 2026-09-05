@@ -2913,13 +2913,18 @@ export default function POSTerminal() {
                   <Button
                     className="h-12 bg-primary hover:bg-primary/90 text-white font-extrabold uppercase tracking-wide text-xs rounded-xl shadow-[0_6px_20px_-4px_hsl(var(--primary)/0.5)]"
                     disabled={
+                      createSaleMutation.isPending ||
                       cart.length === 0 ||
                       (paymentMethod !== "Credit" && customerPaidAmount < total) ||
                       (paymentMethod === "Credit" && !selectedCustomer)
                     }
                     onClick={() => createSaleMutation.mutate()}
                   >
-                    {paymentMethod === "Credit" ? "Credit Bill" : "Pay"}
+                    {createSaleMutation.isPending
+                      ? "Processing..."
+                      : paymentMethod === "Credit"
+                        ? "Credit Bill"
+                        : "Pay"}
                   </Button>
                 </div>
               </div>
