@@ -231,14 +231,24 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   if (data.customerName) twoCol("Customer:", truncate(data.customerName, width - 10));
   hr();
 
+  // Compact item lines: short-named items (the norm for a wholesale grocery bill - "Onion",
+  // "Dhal", etc.) fit name + qty + amount on ONE line, so a 20-30-item bill doesn't turn into
+  // a meter of paper. Only names too long to fit alongside the qty/price fall back to their
+  // own line, same as before.
   for (const item of data.items) {
-    push(truncate(item.name, width) + "\n");
     const qtyLabel = `${item.quantity}${item.unit_label ? " " + item.unit_label : ""} x ${item.price.toFixed(2)}`;
     const lineGross = item.price * item.quantity;
     const itemDiscountAmt = item.item_discount
       ? Math.max(0, Math.min(item.item_discount_type === "fixed" ? item.item_discount : (lineGross * item.item_discount) / 100, lineGross))
       : 0;
-    twoCol(qtyLabel, (lineGross - itemDiscountAmt).toFixed(2));
+    const amt = (lineGross - itemDiscountAmt).toFixed(2);
+    const combined = `${item.name} (${qtyLabel})`;
+    if (combined.length + amt.length + 1 <= width) {
+      twoCol(combined, amt);
+    } else {
+      push(truncate(item.name, width) + "\n");
+      twoCol(qtyLabel, amt);
+    }
     if (itemDiscountAmt > 0) twoCol("  Item Discount:", `-${itemDiscountAmt.toFixed(2)}`);
   }
   hr();
@@ -269,7 +279,7 @@ function buildReceiptBytes(data: ReceiptPrintData): number[] {
   push("Support: +94 75 412 0403\n");
   push("Powered by Artixo\n");
   bold(false);
-  feed(4);
+  feed(2);
 
   // Full cut
   bytes.push(GS, 0x56, 0x00);
@@ -301,6 +311,9 @@ export async function printReceiptInBrowser(data: ReceiptPrintData, isReprint = 
   const returnUrl = `${window.location.origin}/returns?invoice=${encodeURIComponent(data.invoiceNumber)}`;
   const returnQrDataUrl = await QRCode.toDataURL(returnUrl, { width: 200, margin: 1, errorCorrectionLevel: "M" }).catch(() => "");
 
+  // Compact layout: name + qty/price share one row (name wraps onto a second line only if it's
+  // genuinely too long to fit next to the amount) instead of always reserving a separate line -
+  // a wholesale bill with 20-30 short-named items would otherwise print a meter of paper.
   const itemsHTML = data.items
     .map((item, idx) => {
       const lineGross = item.quantity * item.price;
@@ -310,11 +323,11 @@ export async function printReceiptInBrowser(data: ReceiptPrintData, isReprint = 
           : item.item_discount
         : 0;
       const lineNet = lineGross - itemDiscountAmt;
+      const qtyLabel = `${item.quantity}${item.unit_label ? ` ${item.unit_label}` : ""} &times; ${item.price.toFixed(2)}`;
       return `
       <div class="item">
-        <div class="item-name"><span class="item-no">${String(idx + 1).padStart(2, "0")}</span>${item.name}</div>
         <div class="item-row">
-          <span class="item-qty">${item.quantity}${item.unit_label ? ` ${item.unit_label}` : ""} &times; ${item.price.toFixed(2)}</span>
+          <span class="item-qty"><span class="item-no">${String(idx + 1).padStart(2, "0")}</span>${item.name} <span class="item-mult">(${qtyLabel})</span></span>
           <span class="item-amt">Rs. ${lineNet.toFixed(2)}</span>
         </div>
         ${itemDiscountAmt > 0 ? `
@@ -365,11 +378,12 @@ export async function printReceiptInBrowser(data: ReceiptPrintData, isReprint = 
           .info-row .val { font-weight: 900; }
           .items-head { display: flex; justify-content: space-between; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; background: #000; color: #fff; padding: 3px 4px; margin-bottom: 6px; }
           .items { margin: 6px 0; }
-          .item { margin-bottom: 6px; }
+          .item { margin-bottom: 3px; }
           .item-no { display: inline-block; font-weight: 900; color: #fff; background: #000; font-size: 8px; padding: 1px 4px; border-radius: 3px; margin-right: 5px; }
-          .item-name { font-size: 11.5px; font-weight: 800; }
-          .item-row { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; color: #000; margin-top: 2px; padding-left: 20px; }
-          .item-amt { font-weight: 900; }
+          .item-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; font-weight: 800; color: #000; }
+          .item-row + .item-row { margin-top: 2px; padding-left: 20px; font-size: 10.5px; font-weight: 700; }
+          .item-mult { font-size: 9.5px; font-weight: 700; color: #444; }
+          .item-amt { font-weight: 900; white-space: nowrap; padding-left: 6px; }
           .totals .row { display: flex; justify-content: space-between; margin: 3px 0; font-size: 11px; font-weight: 800; }
           .totals .discount { color: #b00020; }
           .totals .grand { font-size: 16px; font-weight: 900; background: #000; color: #fff; padding: 6px 5px; margin-top: 6px; letter-spacing: 0.5px; }
