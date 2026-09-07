@@ -363,7 +363,7 @@ export async function printReceiptInBrowser(data: ReceiptPrintData, isReprint = 
             color: #000;
             line-height: 1.45;
           }
-          .ticket { border: 2.5px solid #000; padding: 4mm 3mm; }
+          .ticket { padding: 4mm 3mm; }
           .zigzag { height: 5px; margin: 0 -3mm 6px -3mm; background-image: linear-gradient(135deg, #fff 50%, transparent 50%), linear-gradient(-135deg, #fff 50%, transparent 50%); background-size: 8px 10px; background-position: bottom; background-repeat: repeat-x; background-color: #000; }
           .zigzag.bottom { margin: 6px -3mm 0 -3mm; }
           .header { text-align: center; margin-bottom: 8px; }
