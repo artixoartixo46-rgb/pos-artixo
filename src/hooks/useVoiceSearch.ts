@@ -44,6 +44,21 @@ export function useVoiceSearch(options: UseVoiceSearchOptions = {}): UseVoiceSea
   const recognitionRef = useRef<any>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Keep the latest onResult/onError in refs (same pattern as useHardwareScanner.ts) instead of
+  // putting them straight in the effect's dependency array below. POSTerminal.tsx passes a
+  // handleVoiceResult that's rebuilt on every `cart` change (i.e. on every single scan/add-to-cart
+  // during a shift) - with onResult/onError as real deps, that meant the whole SpeechRecognition
+  // object was torn down and a brand new one constructed dozens/hundreds of times per shift, which
+  // is exactly the kind of repeated native-object churn Chrome's mic pipeline doesn't clean up
+  // for free - the tab visibly slows down and eventually locks up the longer the POS stays open.
+  // Refs let onResult/onError update every render without ever recreating the recognition object.
+  const onResultRef = useRef(onResult);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onResultRef.current = onResult;
+    onErrorRef.current = onError;
+  });
+
   useEffect(() => {
     // Check for browser support
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -91,10 +106,10 @@ export function useVoiceSearch(options: UseVoiceSearchOptions = {}): UseVoiceSea
         
         const currentTranscript = finalTranscript || interimTranscript;
         setTranscript(currentTranscript);
-        
+
         // Notify parent when we have a final result
-        if (finalTranscript && onResult) {
-          onResult(finalTranscript.trim());
+        if (finalTranscript && onResultRef.current) {
+          onResultRef.current(finalTranscript.trim());
           
           // Reset timeout on speech
           if (timeoutRef.current) {
@@ -137,15 +152,15 @@ export function useVoiceSearch(options: UseVoiceSearchOptions = {}): UseVoiceSea
         
         setError(errorMessage);
         setIsListening(false);
-        
-        if (onError) {
-          onError(errorMessage);
+
+        if (onErrorRef.current) {
+          onErrorRef.current(errorMessage);
         }
       };
     } else {
       setIsSupported(false);
     }
-    
+
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
@@ -154,7 +169,9 @@ export function useVoiceSearch(options: UseVoiceSearchOptions = {}): UseVoiceSea
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [language, continuous, onResult, onError]);
+    // onResult/onError intentionally excluded - see onResultRef/onErrorRef above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language, continuous]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
