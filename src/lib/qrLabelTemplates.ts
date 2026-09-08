@@ -17,6 +17,11 @@ export interface QRTemplateItem {
    *  packets) - ISO date string. Appended onto whichever text line the template already has
    *  room for; templates with no spare text line (Minimal, Large QR) don't show it at all. */
   expiryDate?: string;
+  /** Shop/business name, shown as a small tag above the product name when the "Include shop
+   *  name on labels" toggle is on (see BarcodePrint.tsx). Undefined when the toggle is off -
+   *  omitted entirely rather than printing an empty tag. Same two templates that skip the
+   *  expiry date (Minimal, Large QR) skip this too - there's no spare line at that size. */
+  shopName?: string;
 }
 
 // Short "Exp DD/MM/YY" form - the label is only 50x25mm total, so there's no room for a full
@@ -116,6 +121,28 @@ export function saveOffsetY(mm: number) {
   localStorage.setItem(OFFSET_Y_KEY, String(mm));
 }
 
+// ---- Show shop name on labels (persisted per-browser) ----
+//
+// Off by default - adding a line to an already-tight 50x25mm sticker changes every template's
+// layout, so a shop that's already happy with their current labels shouldn't see anything
+// different until they opt in.
+
+const SHOW_SHOP_NAME_KEY = "pos_qr_label_show_shop_name";
+
+export function getShowShopName(): boolean {
+  return localStorage.getItem(SHOW_SHOP_NAME_KEY) === "true";
+}
+
+export function saveShowShopName(show: boolean) {
+  localStorage.setItem(SHOW_SHOP_NAME_KEY, String(show));
+}
+
+// Shared by every template below that has room for the shop name - kept in one place (added
+// once to baseLabelCss in BarcodePrint.tsx) so the look stays consistent across templates
+// instead of nine slightly-different copies.
+export const SHOP_TAG_CSS = `.shop-tag { font-size: calc(4.3pt * var(--text-scale, 1)); font-weight: 800; text-transform: uppercase; letter-spacing: 0.3px; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }`;
+const shopTagHtml = (item: QRTemplateItem) => (item.shopName ? `<div class="shop-tag">${item.shopName}</div>` : "");
+
 export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
   {
     id: "classic",
@@ -129,10 +156,12 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-classic .name { font-size: calc(7pt * var(--text-scale, 1)); font-weight: bold; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #000; }
       .tpl-classic .price { font-size: calc(9pt * var(--text-scale, 1)); font-weight: bold; color: #000; margin-top: 0.5mm; }
       .tpl-classic .code { font-size: calc(6pt * var(--text-scale, 1)); color: #000; margin-top: 0.3mm; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="info">
+        ${shopTagHtml(item)}
         <div class="name">${fitName(item.name, 16)}</div>
         <div class="price">Rs.${item.price.toFixed(2)}</div>
         <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
@@ -185,8 +214,10 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-boxed .qr-box img { width: 100%; height: 100%; image-rendering: pixelated; }
       .tpl-boxed .price { font-size: calc(8.5pt * var(--text-scale, 1)); font-weight: bold; color: #000; }
       .tpl-boxed .code { font-size: calc(5.5pt * var(--text-scale, 1)); color: #333; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
+      ${shopTagHtml(item)}
       <div class="name">${fitName(item.name, 18)}</div>
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="price">Rs.${item.price.toFixed(2)}</div>
@@ -205,6 +236,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-price-tag .right { flex: 1; text-align: right; padding-left: 1mm; }
       .tpl-price-tag .right .price { font-size: calc(13pt * var(--text-scale, 1)); font-weight: 800; color: #000; line-height: 1; }
       .tpl-price-tag .right .code { font-size: calc(5.5pt * var(--text-scale, 1)); color: #000; margin-top: 0.5mm; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
       <div class="left">
@@ -212,6 +244,7 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
         <div class="name">${fitName(item.name, 9)}</div>
       </div>
       <div class="right">
+        ${shopTagHtml(item)}
         <div class="price">Rs.${item.price.toFixed(2)}</div>
         <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
       </div>
@@ -229,9 +262,11 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-reverse .code { font-size: calc(6pt * var(--text-scale, 1)); color: #000; margin-top: 0.3mm; }
       .tpl-reverse .qr-box { flex-shrink: 0; width: calc(20mm * var(--qr-scale, 1)); height: calc(20mm * var(--qr-scale, 1)); display: flex; align-items: center; justify-content: center; }
       .tpl-reverse .qr-box img { width: 100%; height: 100%; image-rendering: pixelated; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
       <div class="info">
+        ${shopTagHtml(item)}
         <div class="name">${fitName(item.name, 16)}</div>
         <div class="price">Rs.${item.price.toFixed(2)}</div>
         <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
@@ -249,9 +284,11 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-compact-square .qr-box img { width: 100%; height: 100%; image-rendering: pixelated; }
       .tpl-compact-square .line { font-size: calc(6.5pt * var(--text-scale, 1)); font-weight: bold; color: #000; margin-top: 0.6mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46mm; }
       .tpl-compact-square .code { font-size: calc(5pt * var(--text-scale, 1)); color: #333; margin-top: 0.2mm; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
+      ${shopTagHtml(item)}
       <div class="line">${fitName(item.name, 14)} · Rs.${item.price.toFixed(2)}</div>
       <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>
     `,
@@ -268,8 +305,10 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-elegant-frame .bottom-row { display: flex; align-items: baseline; gap: 1.5mm; }
       .tpl-elegant-frame .price { font-size: calc(8pt * var(--text-scale, 1)); font-weight: 800; color: #000; }
       .tpl-elegant-frame .code { font-size: calc(5pt * var(--text-scale, 1)); color: #333; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
+      ${shopTagHtml(item)}
       <div class="name">${fitName(item.name, 20)}</div>
       <div class="qr-box"><img src="${item.qrDataUrl}" /></div>
       <div class="bottom-row">
@@ -289,8 +328,10 @@ export const QR_LABEL_TEMPLATES: QRLabelTemplate[] = [
       .tpl-discount-tag .code { font-size: calc(5pt * var(--text-scale, 1)); color: #333; margin-top: 0.2mm; }
       .tpl-discount-tag .qr-box { position: absolute; right: 1.5mm; bottom: 1.5mm; width: calc(10mm * var(--qr-scale, 1)); height: calc(10mm * var(--qr-scale, 1)); }
       .tpl-discount-tag .qr-box img { width: 100%; height: 100%; image-rendering: pixelated; }
+      ${SHOP_TAG_CSS}
     `,
     renderLabel: (item, fitName) => `
+      ${shopTagHtml(item)}
       <div class="price">Rs.${item.price.toFixed(2)}</div>
       <div class="name">${fitName(item.name, 16)}</div>
       <div class="code">#${item.qrCodeNumber}${formatExpiryTag(item.expiryDate)}</div>

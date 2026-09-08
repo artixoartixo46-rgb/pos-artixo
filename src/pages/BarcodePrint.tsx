@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Printer, Search, Trash2, Plus, Minus, QrCode, PackageSearch, Star, LayoutTemplate, SlidersHorizontal, RotateCcw, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Crosshair, CalendarClock, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import QRCode from "qrcode";
@@ -27,6 +28,8 @@ import {
   MIN_OFFSET_MM,
   MAX_OFFSET_MM,
   OFFSET_STEP_MM,
+  getShowShopName,
+  saveShowShopName,
   LABEL_W,
   LABEL_H,
   COLS,
@@ -59,6 +62,25 @@ export default function BarcodePrint() {
   const [qrScale, setQrScale] = useState(getQrScale());
   const [offsetX, setOffsetX] = useState(getOffsetX());
   const [offsetY, setOffsetY] = useState(getOffsetY());
+  const [showShopName, setShowShopName] = useState(getShowShopName());
+
+  const { data: shopSettings } = useQuery({
+    queryKey: ["settings-for-receipt"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("settings").select("business_name, address, phone").limit(1).single();
+      if (error && error.code !== "PGRST116") throw error;
+      return data;
+    },
+  });
+
+  // Only actually attached to a label when the toggle is on - undefined otherwise, so
+  // shopTagHtml()/the ESC-POS builder skip the line entirely rather than printing an empty tag.
+  const shopNameForLabel = showShopName ? shopSettings?.business_name || "Artixo POS" : undefined;
+
+  const toggleShowShopName = (checked: boolean) => {
+    setShowShopName(checked);
+    saveShowShopName(checked);
+  };
 
   // Generate a sample QR once, used for template preview cards when the queue is empty
   useEffect(() => {
@@ -274,6 +296,7 @@ export default function BarcodePrint() {
         qrCodeNumber: item.qrCodeNumber,
         qrDataUrl: item.qrDataUrl,
         expiryDate: item.expiryDate,
+        shopName: shopNameForLabel,
       };
       return `<div class="qr-label-box tpl-${template.id}">${template.renderLabel(templateItem, fitName)}</div>`;
     }).join("");
@@ -385,6 +408,7 @@ export default function BarcodePrint() {
             qrCodeNumber: item.qrCodeNumber,
             quantity: item.quantity,
             expiryDate: item.expiryDate,
+            shopName: shopNameForLabel,
           }))
         );
         await createBatchRecords(printQueue);
@@ -458,8 +482,9 @@ export default function BarcodePrint() {
                   price: printQueue[0].price,
                   qrCodeNumber: printQueue[0].qrCodeNumber,
                   qrDataUrl: printQueue[0].qrDataUrl,
+                  shopName: shopNameForLabel,
                 }
-              : { name: "Sample Product", price: 250, qrCodeNumber: "000001", qrDataUrl: sampleQrUrl };
+              : { name: "Sample Product", price: 250, qrCodeNumber: "000001", qrDataUrl: sampleQrUrl, shopName: shopNameForLabel };
             return (
               <button
                 key={template.id}
@@ -565,6 +590,17 @@ export default function BarcodePrint() {
               </Button>
             </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 p-3 glass-card border-border/30 rounded-xl mt-3">
+          <Checkbox
+            id="show-shop-name"
+            checked={showShopName}
+            onCheckedChange={(checked) => toggleShowShopName(checked === true)}
+          />
+          <label htmlFor="show-shop-name" className="text-sm font-medium cursor-pointer">
+            Include shop name on labels
+          </label>
         </div>
       </Card>
 
@@ -795,6 +831,7 @@ export default function BarcodePrint() {
                       qrCodeNumber: item.qrCodeNumber,
                       qrDataUrl: item.qrDataUrl,
                       expiryDate: item.expiryDate,
+                      shopName: shopNameForLabel,
                     };
                     return (
                       <div

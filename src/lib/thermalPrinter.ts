@@ -540,6 +540,10 @@ export interface DirectPrintLabel {
   /** ISO date string - only set for repacked/batched items (e.g. grains repacked from a bulk
    *  sack into gram/kg packets). Printed as its own small line when present. */
   expiryDate?: string;
+  /** Shop/business name - set only when the "Include shop name on labels" toggle is on
+   *  (BarcodePrint.tsx). Printed as its own centered line above the product name, matching
+   *  the .shop-tag treatment used on the HTML-print templates. */
+  shopName?: string;
 }
 
 // Direct ESC/POS printing for QR price labels, reusing the SAME WebUSB connection/native QR
@@ -583,6 +587,11 @@ function buildLabelBytes(labels: DirectPrintLabel[]): number[] {
       align("center");
       qr(String(label.qrCodeNumber));
       feed(1);
+      if (label.shopName) {
+        bold(true);
+        push(truncate(label.shopName, width) + "\n");
+        bold(false);
+      }
       bold(true);
       push(truncate(label.name, width) + "\n");
       doubleHeight(true);
