@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Pencil, Trash2, UserCheck, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,6 +32,8 @@ export default function CreditCustomers() {
     outstanding_balance: "0",
     customer_type: "retail",
     business_name: "",
+    credit_terms_days: "30",
+    sms_opt_in: true,
   });
   const queryClient = useQueryClient();
 
@@ -43,22 +46,24 @@ export default function CreditCustomers() {
     },
   });
 
+  const emptyFormData = { name: "", phone: "", email: "", address: "", outstanding_balance: "0", customer_type: "retail", business_name: "", credit_terms_days: "30", sms_opt_in: true };
+
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      const { error } = await supabase.from("credit_customers").insert([{ ...data, outstanding_balance: parseFloat(data.outstanding_balance) }]);
+      const { error } = await supabase.from("credit_customers").insert([{ ...data, outstanding_balance: parseFloat(data.outstanding_balance), credit_terms_days: parseInt(data.credit_terms_days, 10) || 30 }]);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["credit-customers"] });
       toast.success("Customer created");
       setIsDialogOpen(false);
-      setFormData({ name: "", phone: "", email: "", address: "", outstanding_balance: "0", customer_type: "retail", business_name: "" });
+      setFormData(emptyFormData);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: any) => {
-      const { error } = await supabase.from("credit_customers").update({ ...data, outstanding_balance: parseFloat(data.outstanding_balance) }).eq("id", id);
+      const { error } = await supabase.from("credit_customers").update({ ...data, outstanding_balance: parseFloat(data.outstanding_balance), credit_terms_days: parseInt(data.credit_terms_days, 10) || 30 }).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -66,7 +71,7 @@ export default function CreditCustomers() {
       toast.success("Customer updated");
       setIsDialogOpen(false);
       setEditingCustomer(null);
-      setFormData({ name: "", phone: "", email: "", address: "", outstanding_balance: "0", customer_type: "retail", business_name: "" });
+      setFormData(emptyFormData);
     },
   });
 
@@ -116,6 +121,17 @@ export default function CreditCustomers() {
                 <div><Label>Balance (LKR)</Label><Input type="number" step="0.01" value={formData.outstanding_balance} onChange={(e) => setFormData({ ...formData, outstanding_balance: e.target.value })} /></div>
               </div>
               <div><Label>Address</Label><Textarea value={formData.address} onChange={(e) => setFormData({ ...formData, address: e.target.value })} rows={3} /></div>
+              <div className="grid grid-cols-2 gap-4 items-end">
+                <div>
+                  <Label>Credit Terms (days)</Label>
+                  <Input type="number" min="1" value={formData.credit_terms_days} onChange={(e) => setFormData({ ...formData, credit_terms_days: e.target.value })} />
+                  <p className="text-xs text-muted-foreground mt-1">Days after a credit sale before it's due for this customer.</p>
+                </div>
+                <div className="flex items-center gap-2 pb-2">
+                  <Checkbox id="sms_opt_in" checked={formData.sms_opt_in} onCheckedChange={(v) => setFormData({ ...formData, sms_opt_in: v === true })} />
+                  <Label htmlFor="sms_opt_in" className="cursor-pointer">Send SMS alerts to this customer</Label>
+                </div>
+              </div>
               <Button type="submit" className="w-full">{editingCustomer ? "Update" : "Create"}</Button>
             </form>
           </DialogContent>
@@ -132,7 +148,7 @@ export default function CreditCustomers() {
         {isLoading ? <p className="text-center py-8">Loading...</p> : !customers?.length ? <div className="text-center py-12"><UserCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" /><p className="text-muted-foreground">No customers found.</p></div> : (
           <Table>
             <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Phone</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Balance</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-            <TableBody>{customers.filter((c: any) => typeFilter === "all" || (c.customer_type || "retail") === typeFilter).map((c: any) => (<TableRow key={c.id}><TableCell className="font-medium">{c.name}{c.business_name && <span className="block text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.business_name}</span>}</TableCell><TableCell><Badge variant={c.customer_type === "b2b" ? "default" : c.customer_type === "wholesale" ? "secondary" : "outline"}>{CUSTOMER_TYPE_LABELS[c.customer_type || "retail"]}</Badge></TableCell><TableCell>{c.phone || "-"}</TableCell><TableCell>{c.email || "-"}</TableCell><TableCell className="text-right font-semibold">LKR {Number(c.outstanding_balance ?? 0).toFixed(2)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => { setEditingCustomer(c); setFormData({ name: c.name, phone: c.phone || "", email: c.email || "", address: c.address || "", outstanding_balance: String(c.outstanding_balance ?? 0), customer_type: c.customer_type || "retail", business_name: c.business_name || "" }); setIsDialogOpen(true); }}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => confirm("Delete?") && deleteMutation.mutate(c.id)} className="text-destructive"><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>))}</TableBody>
+            <TableBody>{customers.filter((c: any) => typeFilter === "all" || (c.customer_type || "retail") === typeFilter).map((c: any) => (<TableRow key={c.id}><TableCell className="font-medium">{c.name}{c.business_name && <span className="block text-xs text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.business_name}</span>}</TableCell><TableCell><Badge variant={c.customer_type === "b2b" ? "default" : c.customer_type === "wholesale" ? "secondary" : "outline"}>{CUSTOMER_TYPE_LABELS[c.customer_type || "retail"]}</Badge></TableCell><TableCell>{c.phone || "-"}</TableCell><TableCell>{c.email || "-"}</TableCell><TableCell className="text-right font-semibold">LKR {Number(c.outstanding_balance ?? 0).toFixed(2)}</TableCell><TableCell className="text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => { setEditingCustomer(c); setFormData({ name: c.name, phone: c.phone || "", email: c.email || "", address: c.address || "", outstanding_balance: String(c.outstanding_balance ?? 0), customer_type: c.customer_type || "retail", business_name: c.business_name || "", credit_terms_days: String(c.credit_terms_days ?? 30), sms_opt_in: c.sms_opt_in !== false }); setIsDialogOpen(true); }}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => confirm("Delete?") && deleteMutation.mutate(c.id)} className="text-destructive"><Trash2 className="h-4 w-4" /></Button></div></TableCell></TableRow>))}</TableBody>
           </Table>
         )}
       </Card>

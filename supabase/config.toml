@@ -8,3 +8,9 @@ verify_jwt = false
 
 [functions.chat-assistant]
 verify_jwt = false
+
+[functions.send-sms]
+verify_jwt = false
+
+[functions.credit-sms-reminders]
+verify_jwt = false

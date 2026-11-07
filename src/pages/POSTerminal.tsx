@@ -59,6 +59,7 @@ import {
 import { refreshOfflineCache, syncPendingSales } from "@/lib/offlineSync";
 import { getItemDiscountAmount, getLineNetTotal } from "@/lib/cartMath";
 import { openWhatsAppShare } from "@/lib/whatsapp";
+import { sendCreditSms, newCreditBillSms, paymentReceivedSms } from "@/lib/sms";
 import { WifiOff, RefreshCw } from "lucide-react";
 
 interface PriceTier {
@@ -115,6 +116,8 @@ interface CreditCustomer {
   phone: string;
   email: string;
   outstanding_balance: number;
+  credit_terms_days?: number;
+  sms_opt_in?: boolean;
 }
 
 interface CreditInvoice {
@@ -1504,6 +1507,17 @@ export default function POSTerminal() {
           }
         }
 
+        // Credit bills get a due date (sale date + this customer's own credit terms, defaulting
+        // to 30 days when not set) so the scheduled due-soon/overdue SMS check has something to
+        // compare against - see src/lib/sms.ts and the credit-sms-reminders scheduled job.
+        let dueDate: string | null = null;
+        if (paymentMethod === "Credit" && saleBalance > 0) {
+          const termsDays = selectedCustomer?.credit_terms_days ?? 30;
+          const due = new Date();
+          due.setDate(due.getDate() + termsDays);
+          dueDate = due.toISOString().split("T")[0];
+        }
+
         const { data: sale, error: saleError } = await supabase
           .from("sales")
           .insert({
@@ -1520,6 +1534,7 @@ export default function POSTerminal() {
             paid_amount: customerPaidAmount,
             balance: saleBalance,
             status,
+            due_date: dueDate,
           })
           .select()
           .single();
@@ -1625,6 +1640,20 @@ export default function POSTerminal() {
           title: "Sale Completed",
           description: message,
         });
+
+        // "New credit bill" SMS trigger - fire-and-forget, never blocks the sale that already
+        // succeeded. Skipped when the customer opted out (sms_opt_in === false) or has no phone.
+        if (
+          paymentMethod === "Credit" &&
+          data.sale &&
+          selectedCustomer &&
+          selectedCustomer.sms_opt_in !== false
+        ) {
+          sendCreditSms(
+            selectedCustomer.phone,
+            newCreditBillSms(selectedCustomer.name, data.receiptData.invoiceNumber, Number(data.receiptData.total), (data.sale as any).due_date)
+          ).catch(() => {});
+        }
       }
 
       // Clear cart and reset form
@@ -1746,6 +1775,14 @@ export default function POSTerminal() {
         title: "Payment Processed",
         description: successMessage,
       });
+
+      // "Payment received" SMS trigger - fire-and-forget, same as the new-bill trigger above.
+      if (data.customer.sms_opt_in !== false) {
+        sendCreditSms(
+          data.customer.phone,
+          paymentReceivedSms(data.customer.name, data.paymentAmount, data.customerBalanceAfter)
+        ).catch(() => {});
+      }
 
       // Print receipt
       handlePrintCreditReceipt(data);

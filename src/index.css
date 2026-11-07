@@ -116,6 +116,21 @@
     background: hsla(var(--primary) / 0.5);
   }
 
+  /* Decorative mandala pattern behind the main content area (glass cards blur it softly) */
+  .mandala-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: url('/mandala-bg.jpg');
+    background-size: cover;
+    background-position: left center;
+    background-repeat: no-repeat;
+    opacity: 0.22;
+    mask-image: linear-gradient(to right, black 0%, black 35%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black 0%, black 35%, transparent 100%);
+  }
+
   /* Primary glass surface */
   .glass {
     background: hsla(var(--glass-bg));
