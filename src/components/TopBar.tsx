@@ -170,7 +170,7 @@ export default function TopBar() {
   const initials = (shopSettings?.business_name || "Artixo").trim().slice(0, 2).toUpperCase();
 
   return (
-    <header className="fixed top-0 inset-x-0 z-50 h-14 bg-primary text-primary-foreground shadow-[0_2px_16px_-4px_rgba(0,0,0,0.25)] flex items-center justify-between px-3 md:px-4">
+    <header className="topbar-mandala fixed top-0 inset-x-0 z-50 h-14 bg-primary text-primary-foreground shadow-[0_2px_16px_-4px_rgba(0,0,0,0.25)] flex items-center justify-between px-3 md:px-4">
       <div className="flex items-center gap-3">
         <SidebarTrigger className="text-white hover:bg-white/15 rounded-lg h-9 w-9" />
         <Link to="/" className="flex items-center gap-2">

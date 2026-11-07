@@ -13,10 +13,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <SidebarProvider>
         <div className="h-svh w-full overflow-hidden flex flex-col">
           <TopBar />
-          <div className="relative flex flex-1 min-h-0 w-full pt-14">
-            <div className="mandala-bg" aria-hidden="true" />
+          <div className="flex flex-1 min-h-0 w-full pt-14">
             <AppSidebar />
-            <main className="relative z-10 flex-1 p-4 md:p-6 overflow-auto">{children}</main>
+            <main className="flex-1 p-4 md:p-6 overflow-auto">{children}</main>
           </div>
         </div>
         <ChatWidget />
