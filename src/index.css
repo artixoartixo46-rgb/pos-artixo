@@ -118,11 +118,22 @@
 
   /* Decorative mandala pattern in the top bar, blended into the primary (purple) colour */
   .topbar-mandala {
+    overflow: hidden;
+  }
+  .topbar-mandala::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
     background-image: url('/mandala-bg.jpg');
     background-size: 100% auto;
-    background-position: center 30%;
+    background-position: center 42%;
     background-repeat: no-repeat;
-    background-blend-mode: soft-light;
+    /* grayscale pattern overlaid on the purple so it takes the bar's colour */
+    filter: grayscale(1) contrast(1.4);
+    mix-blend-mode: overlay;
+    opacity: 0.55;
   }
 
   /* Primary glass surface */
